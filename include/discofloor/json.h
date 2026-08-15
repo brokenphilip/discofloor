@@ -37,6 +37,8 @@ namespace discofloor
 			}
 			catch (const std::exception& e)
 			{
+				// todo.... ?
+				// should discofloor have its own logger?
 				fixedphilip::log::error(std::format("Exception parsing json file: {}", e.what()));
 				return false;
 			}
@@ -47,27 +49,28 @@ namespace discofloor
 	// If you're looking for something more compact, use 
 	using pretty_print_json_file = json<4, ' '>;
 
+	// TODO just do it manually
 	// Helper wrapper function for json.at() with exception handling and logging output
 	// Setting not_found_warning to true will gracefully handle missing keys (instead of an exception)
 	// Returns true if json.at() was successful, false otherwise
-	template <typename T>
-	bool json_try_at(const nlohmann::json& data, const std::string& key, T& member_variable, bool not_found_warning = false)
-	{
-		if (not_found_warning && !data.contains(key))
-		{
-			fixedphilip::log::warning(std::format("'{}' json key not found, using default value instead", key));
-			return false;
-		}
-
-		try
-		{
-			member_variable = data.at(key);
-			return true;
-		}
-		catch (const std::exception& e)
-		{
-			fixedphilip::log::error(std::format("Exception reading '{}' json key: {}", key, e.what()));
-			return false;
-		}
-	}
+	//template <typename T>
+	//bool json_try_at(const nlohmann::json& data, const std::string& key, T& member_variable, bool not_found_warning = false)
+	//{
+	//	if (not_found_warning && !data.contains(key))
+	//	{
+	//		fixedphilip::log::warning(std::format("'{}' json key not found, using default value instead", key));
+	//		return false;
+	//	}
+//
+	//	try
+	//	{
+	//		member_variable = data.at(key);
+	//		return true;
+	//	}
+	//	catch (const std::exception& e)
+	//	{
+	//		fixedphilip::log::error(std::format("Exception reading '{}' json key: {}", key, e.what()));
+	//		return false;
+	//	}
+	//}
 }

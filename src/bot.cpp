@@ -31,6 +31,7 @@ namespace discofloor
         {
             try
             {
+                // todo nuke
                 fixedphilip::math::number_t max_data_size_id_num;
                 fixedphilip::math::conversion::convert(max_data_size_id_str, "b", -1, false, nullptr, nullptr, &max_data_size_id_num);
                 max_data_size_id = static_cast<uintmax_t>(max_data_size_id_num);
@@ -91,6 +92,7 @@ namespace discofloor
         auto result = load(config_settings);
         if (result == fixedphilip::file::r_file_not_found)
         {
+            // todo ?
             fixedphilip::log::warning("Default config saved - make sure to update your bot token");
             return false;
         }
@@ -180,6 +182,7 @@ namespace discofloor
 
     dpp::user bot::command::run_event::get_command_invoker() const
     {
+        // todo repalce with visit . . .
         if (auto message_create = get_message_create())
         {
             return message_create->msg.author;
@@ -352,136 +355,135 @@ namespace discofloor
         // as this function's name implies, the lambda will run asynchronously(!!!) and NOT when this function is called
         global_bulk_command_create(commands, [](const dpp::confirmation_callback_t& result) -> dpp::task<void>
         {
-            if (auto command_map = fixedphilip::discord::get_if<dpp::slashcommand_map>("init_commands, global_bulk_command_create", result))
+            // HACK: you can't really do any of this safely anyways, might as well cast away the const
+            auto cluster = static_cast<bot*>(const_cast<dpp::cluster*>(result.bot));
+
+            if (result.is_error())
             {
-                // HACK: you can't really do any of this safely anyways, might as well cast away the const
-                auto cluster = static_cast<bot*>(const_cast<dpp::cluster*>(result.bot));
-                if (!cluster)
+                cluster->log(dpp::ll_error, "Command creation failed - " + result.get_error().human_readable);
+            }
+
+            auto command_map = std::get<dpp::slashcommand_map>(result);
+
+            // we take the command_map results instead of our own (later down the line)
+            // because we want to informatively print which commands in specific discord has created
+            // ie. if any mistakes or errors happen below, we'll just print logs separately
+            auto result_log = std::format("Created {} command{}", command_map->size(), command_map->size() == 1 ? "" : "s");
+
+            bool first_command = true;
+            {
+                std::unique_lock _(cluster->module_commands_mutex_);
+
+                for (const auto& [snowflake, command] : *command_map)
                 {
-                    fixedphilip::log::error("init_commands, global_bulk_command_create: bot was null");
-                    co_return;
-                }
-
-                // we take the command_map results instead of our own (later down the line)
-                // because we want to informatively print which commands in specific discord has created
-                // ie. if any mistakes or errors happen below, we'll just print logs separately
-                auto result_log = std::format("Created {} command{}", command_map->size(), command_map->size() == 1 ? "" : "s");
-
-                bool first_command = true;
-                {
-                    std::unique_lock _(cluster->module_commands_mutex_);
-
-                    for (const auto& [snowflake, command] : *command_map)
+                    if (first_command)
                     {
-                        if (first_command)
+                        result_log += ": '" + command.name + "'";
+                    }
+                    else
+                    {
+                        result_log += ", '" + command.name + "'";
+                    }
+                    first_command = false;
+
+                    // find module command from the slashcommand map we're given (they're identical if their names AND TYPES match)
+                    auto module_command = std::find_if(cluster->module_commands_.begin(), cluster->module_commands_.end(), [&command](const bot::module_command& other)
+                    {
+                        return command.name == other.name && command.type == other.type;
+                    });
+
+                    // note that we're creating a copy of the module command, not keeping a reference to it,
+                    // ...because this lambda will run asynchronously at a later point, and the references would dangle in that case
+                    auto event_router_async = [prefix = cluster->settings().prefix, command = *module_command](const auto& event) -> dpp::task<void>
+                    {
+                        using T = std::decay_t<decltype(event)>;
+
+                        if constexpr (std::is_same_v<T, dpp::message_create_t>)
                         {
-                            result_log += ": '" + command.name + "'";
+                            // we don't want bots to run our commands
+                            if (event.msg.author.is_bot())
+                            {
+                                co_return;
+                            }
+
+                            if (!prefix.empty())
+                            {
+                                auto chat_command = std::format("{}{}", prefix, command.name);
+                                if (event.msg.content == chat_command)
+                                {
+                                    co_await command.run(fixedphilip::discord::bot::command::run_event(event, {}));
+                                }
+                                else if (event.msg.content.starts_with(chat_command + " "))
+                                {
+                                    // the first token will always be the command itself, since slashcommands can't have spaces
+                                    // message/user context menu commands can, however, have spaces, but we don't care about those here
+                                    auto chat_tokens = fixedphilip::utils::string::split_by_whitespace(event.msg.content);
+                                    std::vector<dpp::command_data_option> options;
+
+                                    /*
+                                    
+                                        TODO
+
+                                        if core_cmd.options.size == 0, don't bother checking for chat tokens
+
+                                        if core_cmd.options.size > 0, there are two possibilities:
+                                        - if the first option is a subcmd (group), all the others are too
+                                        - if it's not, all the options are params
+
+                                        if core_cmd.options[i] is a subcmd group, all of its options must be subcmds, and all subcmd options must be params
+
+                                        if core_cmd.options[i] is a subcmd, all of its options must be params
+
+                                    */
+
+                                    co_await command.run(fixedphilip::discord::bot::command::run_event(event, options));
+                                }
+                            }
+                        }
+                        else if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+                        {
+                            if (event.command.get_command_name() == command.name)
+                            {
+                                co_await command.run(fixedphilip::discord::bot::command::run_event(event));
+                            }
                         }
                         else
                         {
-                            result_log += ", '" + command.name + "'";
+                            // can't use false here, or it will never compile (as always, thanks raymond chen :3)
+                            // https://devblogs.microsoft.com/oldnewthing/20200311-00/?p=103553
+                            static_assert(!sizeof(T*), "Unsupported type T");
                         }
-                        first_command = false;
+                    };
 
-                        // find module command from the slashcommand map we're given (they're identical if their names AND TYPES match)
-                        auto module_command = std::find_if(cluster->module_commands_.begin(), cluster->module_commands_.end(), [&command](const bot::module_command& other)
+                    module_command->snowflake = snowflake;
+                    if (module_command->type == dpp::ctxm_chat_input)
+                    {
+                        module_command->event_handles[0] = cluster->on_slashcommand.attach(event_router_async);
+
+                        if ((cluster->intents & dpp::i_message_content) != 0)
                         {
-                            return command.name == other.name && command.type == other.type;
-                        });
-
-                        // note that we're creating a copy of the module command, not keeping a reference to it,
-                        // ...because this lambda will run asynchronously at a later point, and the references would dangle in that case
-                        auto event_router_async = [prefix = cluster->settings().prefix, command = *module_command](const auto& event) -> dpp::task<void>
-                        {
-                            using T = std::decay_t<decltype(event)>;
-
-                            if constexpr (std::is_same_v<T, dpp::message_create_t>)
-                            {
-                                // we don't want bots to run our commands
-                                if (event.msg.author.is_bot())
-                                {
-                                    co_return;
-                                }
-
-                                if (!prefix.empty())
-                                {
-                                    auto chat_command = std::format("{}{}", prefix, command.name);
-                                    if (event.msg.content == chat_command)
-                                    {
-                                        co_await command.run(fixedphilip::discord::bot::command::run_event(event, {}));
-                                    }
-                                    else if (event.msg.content.starts_with(chat_command + " "))
-                                    {
-                                        // the first token will always be the command itself, since slashcommands can't have spaces
-                                        // message/user context menu commands can, however, have spaces, but we don't care about those here
-                                        auto chat_tokens = fixedphilip::utils::string::split_by_whitespace(event.msg.content);
-                                        std::vector<dpp::command_data_option> options;
-
-                                        /*
-                                        
-                                            TODO
-
-                                            if core_cmd.options.size == 0, don't bother checking for chat tokens
-
-                                            if core_cmd.options.size > 0, there are two possibilities:
-                                            - if the first option is a subcmd (group), all the others are too
-                                            - if it's not, all the options are params
-
-                                            if core_cmd.options[i] is a subcmd group, all of its options must be subcmds, and all subcmd options must be params
-
-                                            if core_cmd.options[i] is a subcmd, all of its options must be params
-
-                                        */
-
-                                        co_await command.run(fixedphilip::discord::bot::command::run_event(event, options));
-                                    }
-                                }
-                            }
-                            else if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
-                            {
-                                if (event.command.get_command_name() == command.name)
-                                {
-                                    co_await command.run(fixedphilip::discord::bot::command::run_event(event));
-                                }
-                            }
-                            else
-                            {
-                                // can't use false here, or it will never compile (as always, thanks raymond chen :3)
-                                // https://devblogs.microsoft.com/oldnewthing/20200311-00/?p=103553
-                                static_assert(!sizeof(T*), "Unsupported type T");
-                            }
-                        };
-
-                        module_command->snowflake = snowflake;
-                        if (module_command->type == dpp::ctxm_chat_input)
-                        {
-                            module_command->event_handles[0] = cluster->on_slashcommand.attach(event_router_async);
-
-                            if ((cluster->intents & dpp::i_message_content) != 0)
-                            {
-                                module_command->event_handles[1] = cluster->on_message_create.attach(event_router_async);
-                            }
-                        }
-                        else if (module_command->type == dpp::ctxm_message)
-                        {
-                            module_command->event_handles[0] = cluster->on_message_context_menu.attach(event_router_async);
-                        }
-                        else if (module_command->type == dpp::ctxm_user)
-                        {
-                            module_command->event_handles[0] = cluster->on_user_context_menu.attach(event_router_async);
-                        }
-                        else
-                        {
-                            // TODO: most likely unreachable
-                            cluster->log(dpp::ll_error, std::format("Command '{}' is of invalid type", module_command->name));
-                            cluster->module_commands_.erase(module_command);
+                            module_command->event_handles[1] = cluster->on_message_create.attach(event_router_async);
                         }
                     }
+                    else if (module_command->type == dpp::ctxm_message)
+                    {
+                        module_command->event_handles[0] = cluster->on_message_context_menu.attach(event_router_async);
+                    }
+                    else if (module_command->type == dpp::ctxm_user)
+                    {
+                        module_command->event_handles[0] = cluster->on_user_context_menu.attach(event_router_async);
+                    }
+                    else
+                    {
+                        // TODO: most likely unreachable
+                        cluster->log(dpp::ll_error, std::format("Command '{}' is of invalid type", module_command->name));
+                        cluster->module_commands_.erase(module_command);
+                    }
                 }
-
-                // all commands iterated, print resulting log
-                cluster->log(dpp::ll_info, result_log);
             }
+
+            // all commands iterated, print resulting log
+            cluster->log(dpp::ll_info, result_log);
         });
     }
 

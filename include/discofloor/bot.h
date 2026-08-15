@@ -44,9 +44,8 @@ namespace discofloor
 	};
 
 	// Configuration file structure used to load discofloor bot settings from a file
-    class bot_config : public discofloor::file::json
+    struct bot_config : public discofloor::file::json
     {
-	public:
         std::string token = FIXEDPHILIP_DEFAULT_TOKEN;
         bot_settings settings;
 
@@ -276,11 +275,11 @@ namespace discofloor
 		inline auto app_owner() { std::shared_lock _(app_owner_mutex_); return app_owner_; }
 
 		// Load global, user or guild-specific bot data
-		fixedphilip::file::result load_data(dpp::snowflake id, const std::string& name, bot::data& data_out);
+		bulbtils::file::result load_data(dpp::snowflake id, const std::string& name, bot_data& data_out);
 
 		// Save global, user or guild-specific bot data
 		// In addition to base::save return values, also returns 'r_write_error' if we're over our size quota
-		fixedphilip::file::result save_data(dpp::snowflake id, const std::string& name, const bot::data& data);
+		bulbtils::file::result save_data(dpp::snowflake id, const std::string& name, const bot_data& data);
 
 		// Returns the current size of all bot data
 		// The maximum value can be found under settings()
@@ -293,6 +292,7 @@ namespace discofloor
 		// Given an ID, return the respective bot data folder
 		std::filesystem::path data_folder_id(dpp::snowflake id);
 
+		// TODO should this be moved outside
 		// Server and user counts, for the servers the bot is currently in, as well as all the (guild and user install) users it can see
 		struct counts
 		{
@@ -322,30 +322,4 @@ namespace discofloor
         using bulbtils::file::base::load;
         friend class bot;
     };
-
-	template <typename T>
-	const T* get_if(const std::string& log_prefix, const dpp::confirmation_callback_t& result)
-	{
-		auto cluster = result.bot;
-		if (result.is_error())
-		{
-			auto error = std::format("{} - {}", log_prefix, result.get_error().human_readable);
-			if (cluster)
-			{
-				cluster->log(dpp::ll_error, error);
-			}
-			else
-			{
-				fixedphilip::log::error(error);
-			}
-			return nullptr;
-		}
-
-		if (auto value = std::get_if<T>(&result.value))
-		{
-			return value;
-		}
-
-		throw std::logic_error(std::format("{} - wrong result.value type T", log_prefix));
-	}
 }
