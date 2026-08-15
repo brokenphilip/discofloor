@@ -4,8 +4,7 @@
 
 #include <dpp/dpp.h>
 
-#include <fixedphilip/file.h>
-#include <fixedphilip/log.h>
+#include <discofloor/file.h>
 
 #include <bulbtils/named_node.h>
 #include <bulbtils/time.h>
@@ -16,6 +15,188 @@
 
 namespace discofloor
 {
+    // Settings stored and used inside each discofloor bot
+	// These settings can be loaded from and saved to a config file, see the config struct below
+	struct bot_settings
+	{
+		// Chat prefix for old-style commands (can be set to blank to disable)
+		std::string prefix = "";
+
+		// List of disabled modules by name
+		// Accepts wildcards ('*') - todo
+		std::vector<std::string> disabled_modules = {};
+
+		// Folder where bot (user/guild/global) data should be stored
+		// Can be absolute or relative
+		std::string data_folder = "data";
+
+		// Maximum size of bot (user/guild/global) data for any given snowflake ID
+		uintmax_t max_data_size_id = 1024 * 1024;
+
+		// Maximum total size of bot (user/guild/global) data
+		uintmax_t max_data_size_total = 1024 * 1024 * 1024;
+
+		// Modify this function to return json data of this structure
+		nlohmann::json struct_to_json() const;
+
+		// Modify this function to read structure data from json
+		bool json_to_struct(const nlohmann::json& data);
+	};
+
+	// Configuration file structure used to load discofloor bot settings from a file
+    class bot_config : public discofloor::file::json
+    {
+	public:
+        std::string token = FIXEDPHILIP_DEFAULT_TOKEN;
+        bot_settings settings;
+
+        virtual nlohmann::json struct_to_json() const override final;
+        virtual bool json_to_struct(const nlohmann::json& data) override final;
+
+        // Use this instead of load() to load the config
+        // If it returns true, proceed with instantiating the bot
+        bool load_from_file(const std::string& filename);
+    };
+
+	using run_event_base = std::variant<dpp::slashcommand_t, dpp::message_create_t, dpp::message_context_menu_t, dpp::user_context_menu_t>;
+
+    class run_event : public run_event_base
+    {
+        std::vector<dpp::command_data_option> manual_options_;
+    public:
+        run_event(const dpp::slashcommand_t& slash_command) : run_event_base(slash_command) {}
+        run_event(const dpp::message_context_menu_t& message_context_menu) : run_event_base(message_context_menu) {}
+        run_event(const dpp::user_context_menu_t& user_context_menu) : run_event_base(user_context_menu) {}
+        run_event(const dpp::message_create_t& message_create, const std::vector<dpp::command_data_option>& manual_options)
+            : run_event_base(message_create), manual_options_(manual_options) {}
+
+        bot* get_bot() const;
+
+        inline auto get_slash_command() const { return std::get_if<dpp::slashcommand_t>(this); }
+        inline auto get_message_create() const { return std::get_if<dpp::message_create_t>(this); }
+        inline auto get_message_context_menu() const { return std::get_if<dpp::message_context_menu_t>(this); }
+        inline auto get_user_context_menu() const { return std::get_if<dpp::user_context_menu_t>(this); }
+
+        // For any type of slash command (ie. excluding old-style commands), get the underlying interaction event
+        const dpp::interaction_create_t* get_interaction_create() const;
+
+        // For any type of command (including old-style commands), get the underlying event dispatch
+        const dpp::event_dispatch_t& event_dispatch() const;
+
+        dpp::user get_command_invoker() const;
+
+        void reply(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
+        inline void reply(const std::string& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const { reply(dpp::message(msg), callback); }
+
+        dpp::async<dpp::confirmation_callback_t> co_reply(const dpp::message& msg) const;
+        inline dpp::async<dpp::confirmation_callback_t> co_reply(const std::string& msg) const { return co_reply(dpp::message(msg)); }
+
+        // Remember to use thinking_end() instead of reply() after using thinking_start()
+        // Additionally, if using the coroutine, make sure to co_await before ending the think
+        void thinking_start() const;
+        dpp::async<dpp::confirmation_callback_t> co_thinking_start() const;
+
+        void thinking_end(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
+        inline void thinking_end(const std::string& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const { thinking_end(dpp::message(msg), callback); }
+
+        // For old-style commands, reply to the user that they should instead use the slash command
+        // For "CHAT_INPUT" commands, reply to the user that they should instead use the old-style command
+        // If old-style commands are disabled, the user simply gets a "not implemented" reply instead
+        // This function is not supported for "MESSAGE" and "USER" commands - will throw std::logic_error
+        void reply_not_impl_use_other() const;
+
+        // Given a command parameter name, try to fetch the command parameter value
+        // Returns the value if found, or default_value otherwise
+        template <typename T>
+        T try_get_command_parameter(const std::string& param_name, T default_value) const
+        {
+            if (auto message_create = get_message_create())
+            {
+                // todo - manual_options_
+                return default_value;
+            }
+            else if (auto param = get_interaction_create()->get_parameter(param_name); auto value = std::get_if<T>(&param))
+            {
+                return *value;
+            }
+            return default_value;
+        }
+    };
+
+	// Slash command wrapper with an accompanying run function that supports:
+    // - old-style (chat prefix) commands, unless disabled (blank prefix)
+    // - "CHAT_INPUT" ie. regular (chat) slash commands
+    // - "USER" ie. (right-click) user context menu commands
+    // - "MESSAGE" ie. (right-click) message context menu commands
+    class command : public dpp::slashcommand
+    {
+    public:
+        using run_fn = std::function<dpp::task<void>(const run_event&)>;
+    private:
+        run_fn run_fn_;
+    public:
+        inline command(const std::string& name, const std::string& description, const dpp::snowflake application_id, run_fn run_fn)
+            : dpp::slashcommand(name, description, application_id), run_fn_(run_fn) {}
+
+        inline command(const std::string& name, const dpp::slashcommand_contextmenu_type type, const dpp::snowflake application_id, run_fn run_fn)
+            : dpp::slashcommand(name, type, application_id), run_fn_(run_fn) {}
+
+        inline auto get_run_fn() const { return run_fn_; }
+        inline dpp::task<void> run(const run_event& event) const { co_await run_fn_(event); }
+
+        template <typename T>
+        static T try_get_parameter(const dpp::slashcommand_t& command, const std::string& param_name, T default_value) 
+        {
+            if (auto param = command.get_parameter(param_name); auto value = std::get_if<T>(&param))
+            {
+                return *value;
+            }
+            return default_value;
+        }
+    };
+
+	// Base module interface - inherit this class to create your own custom module
+	//
+	// Modules are, by design, meant to be single-instance ("static"), but they don't necessarily have to be
+    // For dynamically allocated ("dynamic") modules, you can use bot::add_module() and bot::remove_module()
+    // 
+    // When a module ("static" or "dynamic") is being instantiated, it gets added to the internal linked list of modules
+	// This linked list is iterated for each discofloor bot as described in the virtual functions below
+	// Since "dynamic" modules are also added to the linked list, be careful
+    struct module : public bulbtils::named_node<module>
+    {
+        inline module(const char* name, const char* description) : named_node<module>(name), description_(description) {}
+        inline virtual ~module() {}
+
+		// This function is called when a discofloor bot is being constructed
+		// Alternatively, it is also called when the module is being late-loaded using bot::add_module()
+        // Modules are always initialized in alphabetical order, based on their name
+		//
+		// Return false to prevent your module from being loaded (eg. if something goes wrong)
+		// By default, this virtual function just returns true and doesn't do anything else
+		// If you don't need to run any initialization code, you don't need to override it
+		// 
+        // NOTE: Modules can additionally be disabled using the "disabled_modules" bot setting
+		// In that case, this function will NOT be called, and the module will NOT be initialized
+		//
+        // NOTE: Since this is called during the module internal linked list iteration,
+		// ...do NOT create new (dynamic) modules within this function
+        inline virtual bool init(bot& bot) { return true; }
+
+		// This function is called when a discofloor bot is requesting all loaded modules' commands
+        // This usually happens a short while after init() - during the bot's initial on_ready event
+        // For late-loaded commands using bot::add_module(), this function is called right after init()
+        inline virtual std::vector<command> commands(bot& bot) { return {}; }
+
+		// This function is called when a discofloor bot is being destructed
+        // Alternatively, it is also called when the module is being early-unloaded using bot::remove_module()
+        // Modules are always destroyed in reverse-alphabetical order, based on their name
+		//
+		// By default, this virtual function doesn't do anything
+        // If you don't need to run any destruction code, you don't need to override it
+        inline virtual void destroy(bot& bot) {}
+    };
+
 	// The base of a fixedphilip bot/cluster, expanded to support
 	// - Modules and their commands
 	// - Global, user or guild-specific bot data management
@@ -133,6 +314,14 @@ namespace discofloor
 		};
 		dpp::task<counts> co_get_counts();
 	};
+
+	// File-based (JSON) data structure for storing global, user or guild-specific bot data
+    class bot_data : public discofloor::file::json<-1, ' '>
+    {
+        using bulbtils::file::base::save;
+        using bulbtils::file::base::load;
+        friend class bot;
+    };
 
 	template <typename T>
 	const T* get_if(const std::string& log_prefix, const dpp::confirmation_callback_t& result)

@@ -8,6 +8,272 @@
 
 namespace discofloor
 {
+    nlohmann::json bot_settings::struct_to_json() const
+    {
+        return
+        {
+            { "prefix", prefix },
+            { "disabled_modules", disabled_modules },
+            { "data_folder", data_folder },
+            { "max_data_size_id", fixedphilip::file::size_to_string(max_data_size_id) },
+            { "max_data_size_total", fixedphilip::file::size_to_string(max_data_size_total) },
+        };
+    }
+
+    bool bot_settings::json_to_struct(const nlohmann::json& data)
+    {
+        fixedphilip::file::json_try_at(data, "prefix", prefix, true);
+        fixedphilip::file::json_try_at(data, "disabled_modules", disabled_modules, true);
+        fixedphilip::file::json_try_at(data, "data_folder", data_folder, true);
+
+        std::string max_data_size_id_str;
+        if (fixedphilip::file::json_try_at(data, "max_data_size_id", max_data_size_id_str, true))
+        {
+            try
+            {
+                fixedphilip::math::number_t max_data_size_id_num;
+                fixedphilip::math::conversion::convert(max_data_size_id_str, "b", -1, false, nullptr, nullptr, &max_data_size_id_num);
+                max_data_size_id = static_cast<uintmax_t>(max_data_size_id_num);
+            }
+            catch (std::exception& e)
+            {
+                fixedphilip::log::error(std::format("Failed to parse 'max_data_size_id' for bot settings - {}", e.what()));
+            }
+        }
+
+        std::string max_data_size_total_str;
+        if (fixedphilip::file::json_try_at(data, "max_data_size_total", max_data_size_total_str, true))
+        {
+            try
+            {
+                fixedphilip::math::number_t max_data_size_total_num;
+                fixedphilip::math::conversion::convert(max_data_size_total_str, "b", -1, false, nullptr, nullptr, &max_data_size_total_num);
+                max_data_size_total = static_cast<uintmax_t>(max_data_size_total_num);
+            }
+            catch (std::exception& e)
+            {
+                fixedphilip::log::error(std::format("Failed to parse 'max_data_size_total' for bot settings - {}", e.what()));
+            }
+        }
+
+        // partial load is okay
+        return true;
+    }
+
+    nlohmann::json bot_config::struct_to_json() const
+    {
+        nlohmann::json data
+        {
+            { "token", token },
+        };
+        data.update(settings.struct_to_json());
+        return data;
+    }
+
+    bool bot_config::json_to_struct(const nlohmann::json& data)
+    {
+        // create a copy of the data we will pass down to settings, but without the token
+        auto data_copy = data;
+        bool token_valid = fixedphilip::file::json_try_at(data_copy, "token", token, true);
+        data_copy.erase("token");
+        return settings.json_to_struct(data_copy);
+    }
+
+    bool bot_config::load_from_file(const std::string& filename)
+    {
+        fixedphilip::file::settings config_settings
+        {
+            .filename = filename,
+            .create_if_not_found = true,
+            .log = true,
+        };
+
+        auto result = load(config_settings);
+        if (result == fixedphilip::file::r_file_not_found)
+        {
+            fixedphilip::log::warning("Default config saved - make sure to update your bot token");
+            return false;
+        }
+        else if (result != fixedphilip::file::r_success)
+        {
+            // logs are already printed for us
+            return false;
+        }
+
+        if (token == FIXEDPHILIP_DEFAULT_TOKEN || token.empty())
+        {
+            fixedphilip::log::error("Bot token not set in config file");
+            return false;
+        }
+
+        if (settings.prefix.empty())
+        {
+            fixedphilip::log::info("Old-style commands disabled (prefix is blank)");
+        }
+        else
+        {
+            fixedphilip::log::info(std::format("Global prefix for old-style commands set to '{}'", settings.prefix));
+        }
+
+        if (settings.disabled_modules.empty())
+        {
+            fixedphilip::log::info("No modules will be disabled");
+        }
+        else
+        {
+            std::string result_log = std::format("If existing and enabled, {} module{} will be disabled", settings.disabled_modules.size(), settings.disabled_modules.size() == 1 ? "" : "s");
+            bool first_module = true;
+            for (auto& module : settings.disabled_modules)
+            {
+                if (first_module)
+                {
+                    result_log += ": '" + module + "'";
+                }
+                else
+                {
+                    result_log += ", '" + module + "'";
+                }
+                first_module = false;
+            }
+            fixedphilip::log::info(result_log);
+        }
+
+        // using this opportunity to add any new keys that might not exist
+        save(config_settings);
+        return true;
+    }
+
+    bot* bot::command::run_event::get_bot() const
+    {
+        return std::visit([](auto& event_dispatch)
+        {
+            return static_cast<bot*>(event_dispatch.owner);
+        },
+        *this);
+    }
+
+    const dpp::interaction_create_t* bot::command::run_event::get_interaction_create() const
+    {
+        return std::visit([](auto&& arg) -> const dpp::interaction_create_t*
+        {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                return &arg;
+            }
+            else
+            {
+                return nullptr;
+            }
+        },
+        *this);
+    }
+
+    const dpp::event_dispatch_t& bot::command::run_event::event_dispatch() const
+    {
+        return std::visit([](auto& event_dispatch) -> const dpp::event_dispatch_t&
+        {
+            return event_dispatch;
+        },
+        *this);
+    }
+
+    dpp::user bot::command::run_event::get_command_invoker() const
+    {
+        if (auto message_create = get_message_create())
+        {
+            return message_create->msg.author;
+        }
+        return get_interaction_create()->command.usr;
+    }
+
+    void bot::command::run_event::reply(const dpp::message& msg, dpp::command_completion_event_t callback) const
+    {
+        if (auto message_create = get_message_create())
+        {
+            message_create->reply(msg, false, callback);
+            return;
+        }
+        get_interaction_create()->reply(msg, callback);
+    }
+
+    dpp::async<dpp::confirmation_callback_t> bot::command::run_event::co_reply(const dpp::message& msg) const
+    {
+        if (auto message_create = get_message_create())
+        {
+            return message_create->co_reply(msg);
+        }
+        return get_interaction_create()->co_reply(msg);
+    }
+
+    void bot::command::run_event::thinking_start() const
+    {
+        if (auto message_create = get_message_create())
+        {
+            message_create->owner->channel_typing(message_create->msg.channel_id);
+            return;
+        }
+        get_interaction_create()->thinking();
+    }
+
+    dpp::async<dpp::confirmation_callback_t> bot::command::run_event::co_thinking_start() const
+    {
+        if (auto message_create = get_message_create())
+        {
+            return message_create->owner->co_channel_typing(message_create->msg.channel_id);
+        }
+        return get_interaction_create()->co_thinking();
+    }
+
+    void bot::command::run_event::thinking_end(const dpp::message& msg, dpp::command_completion_event_t callback) const
+    {
+        if (auto message_create = get_message_create())
+        {
+            message_create->reply(msg, false, callback);
+            return;
+        }
+        get_interaction_create()->edit_original_response(msg, callback);
+    }
+
+    void bot::command::run_event::reply_not_impl_use_other() const
+    {
+        std::string command_text;
+
+        auto cluster = get_bot();
+        auto prefix = cluster->settings().prefix;
+        
+        if (auto slash_command = get_slash_command())
+        {
+            if (prefix.empty())
+            {
+                reply(":warning: **| Not implemented.**");
+                return;
+            }
+            command_text = "`" + prefix + slash_command->command.get_command_name() + "`";
+        }
+        else if (auto message_create = get_message_create())
+        {
+            auto prefix_len = prefix.length();
+            auto name = message_create->msg.content.substr(prefix_len, message_create->msg.content.find(' ') - prefix_len);
+
+            auto snowflake = cluster->slash_command_snowflake(name);
+            if (snowflake == dpp::snowflake(0))
+            {
+                cluster->log(dpp::ll_error, "Failed to find snowflake for command " + name);
+                command_text = "`/" + name + "`";
+            }
+            else
+            {
+                command_text = dpp::utility::slashcommand_mention(snowflake, name);
+            }
+        }
+        else
+        {
+            throw std::logic_error("reply_not_impl_use_other called from unsupported run_event variant");
+        }
+        reply(std::format(":warning: **| Not implemented, use {} instead.**", command_text));
+    }
+
     dpp::task<void> bot::ready_event(const dpp::ready_t& event)
     {
         if (dpp::run_once<struct ready_event_init>())
