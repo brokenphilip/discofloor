@@ -2,7 +2,7 @@
 
 #include <bulbtils/file.h>
 
-#include <dpp/json.hpp>
+#include <dpp/json.h>
 
 #include <format>
 #include <filesystem>
@@ -49,7 +49,7 @@ namespace discofloor
 
 	// An extension of the base file structure, which saves pretty-printed json data to a file
 	// If you're looking for something more compact, use 
-	using pretty_print_json_file = json<4, ' '>;
+	using pretty_print_json_file = json_file<4, ' '>;
 
 	// Helper wrapper function for json.at() with exception handling and logging output
 	// Setting not_found_warning to true will gracefully handle missing keys (instead of an exception)

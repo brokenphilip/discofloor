@@ -4,7 +4,7 @@
 
 #include <dpp/dpp.h>
 
-#include <discofloor/file.h>
+#include <discofloor/json.h>
 
 #include <bulbtils/named_node.h>
 #include <bulbtils/time.h>
@@ -15,6 +15,8 @@
 
 namespace discofloor
 {
+	class bot;
+
     // Settings stored and used inside each discofloor bot
 	// These settings can be loaded from and saved to a config file, see the config struct below
 	struct bot_settings
@@ -37,20 +39,20 @@ namespace discofloor
 		uintmax_t max_data_size_total = 1024 * 1024 * 1024;
 
 		// Modify this function to return json data of this structure
-		nlohmann::json struct_to_json() const;
+		nlohmann::json struct_to_json(const bulbtils::file::settings& save_settings) const;
 
 		// Modify this function to read structure data from json
-		bool json_to_struct(const nlohmann::json& data);
+		bool json_to_struct(const nlohmann::json& data, const bulbtils::file::settings& load_settings);
 	};
 
 	// Configuration file class used to load discofloor bot token and settings from a file
-    struct bot_config : public discofloor::file::json
+    struct bot_config : public pretty_print_json_file
     {
         std::string token = DISCOFLOOR_DEFAULT_TOKEN;
         bot_settings settings;
 
-        virtual nlohmann::json struct_to_json() const override final;
-        virtual bool json_to_struct(const nlohmann::json& data) override final;
+        virtual nlohmann::json struct_to_json(const bulbtils::file::settings& save_settings) const override final;
+        virtual bool json_to_struct(const nlohmann::json& data, const bulbtils::file::settings& load_settings) override final;
 
 		// Load
 		// This is preferred over manually calling load() and save()
@@ -139,7 +141,7 @@ namespace discofloor
         template <typename T>
         T try_get_command_parameter(const std::string& param_name, T default_value) const
         {
-            if (auto message_create = get_message_create())
+            if (auto message_command = get_message_command())
             {
                 // todo - manual_options_
                 return default_value;
@@ -216,7 +218,7 @@ namespace discofloor
 
 	// File-based (JSON) data structure for storing snowflake-specific discofloor bot data
 	// Inherit this class and use bot::load_data and bot::save_data to manipulate data
-    class bot_data : public discofloor::file::json<-1, ' '>
+    class bot_data : public json_file<-1, ' '>
     {
         using bulbtils::file::base::save;
         using bulbtils::file::base::load;
@@ -255,7 +257,7 @@ namespace discofloor
 		const bulbtils::time::raii_stopwatch running_time_;
 		const std::chrono::system_clock::time_point start_time_ = std::chrono::system_clock::now();
 
-		std::vector<bot_module*> loaded_modules_;
+		std::vector<module*> loaded_modules_;
 		std::shared_mutex loaded_modules_mutex_;
 
 		struct module_command : public command
