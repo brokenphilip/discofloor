@@ -3,8 +3,8 @@
 #include <fixedphilip/build.h>
 #include <fixedphilip/math.h>
 
-#include <fixedphilip/utils/string.h>
-#include <fixedphilip/utils/time.h>
+#include <bulbtils/string.h>
+#include <bulbtils/time.h>
 
 namespace discofloor
 {

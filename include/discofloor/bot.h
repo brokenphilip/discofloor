@@ -57,29 +57,33 @@ namespace discofloor
         bool load_from_file(const std::string& filename);
     };
 
-	using run_event_base = std::variant<dpp::slashcommand_t, dpp::message_create_t, dpp::message_context_menu_t, dpp::user_context_menu_t>;
-
-    class run_event : public run_event_base
-    {
+	// Message create event, modified to support command options, used in run_event
+	class message_command_t : public dpp::message_create_t
+	{
         std::vector<dpp::command_data_option> manual_options_;
     public:
-        run_event(const dpp::slashcommand_t& slash_command) : run_event_base(slash_command) {}
-        run_event(const dpp::message_context_menu_t& message_context_menu) : run_event_base(message_context_menu) {}
-        run_event(const dpp::user_context_menu_t& user_context_menu) : run_event_base(user_context_menu) {}
-        run_event(const dpp::message_create_t& message_create, const std::vector<dpp::command_data_option>& manual_options)
-            : run_event_base(message_create), manual_options_(manual_options) {}
+		message_command_t(const dpp::message_create_t& message_create, const std::vector<dpp::command_data_option>& manual_options)
+			: dpp::message_create_t(message_create), manual_options_(manual_options) {}
+	};
+
+	using run_event_base = std::variant<discofloor::message_command_t, dpp::slashcommand_t, dpp::message_context_menu_t, dpp::user_context_menu_t>;
+
+    struct run_event : public run_event_base
+    {
+        using run_event_base::run_event_base;
 
         bot* get_bot() const;
 
+        inline auto get_message_command() const { return std::get_if<discofloor::message_command_t>(this); }
         inline auto get_slash_command() const { return std::get_if<dpp::slashcommand_t>(this); }
-        inline auto get_message_create() const { return std::get_if<dpp::message_create_t>(this); }
         inline auto get_message_context_menu() const { return std::get_if<dpp::message_context_menu_t>(this); }
         inline auto get_user_context_menu() const { return std::get_if<dpp::user_context_menu_t>(this); }
 
-        // For any type of slash command (ie. excluding old-style commands), get the underlying interaction event
+        // For any type of slashcommand-based run_event, get the underlying interaction event
+		// Returns null if the run_event is not a slashcommand
         const dpp::interaction_create_t* get_interaction_create() const;
 
-        // For any type of command (including old-style commands), get the underlying event dispatch
+        // Get the underlying event dispatch
         const dpp::event_dispatch_t& event_dispatch() const;
 
         dpp::user get_command_invoker() const;
