@@ -1,59 +1,57 @@
-#include <fixedphilip/discord.h>
-
-#include <fixedphilip/build.h>
-#include <fixedphilip/math.h>
+#include <discofloor/bot.h>
 
 #include <bulbtils/string.h>
 #include <bulbtils/time.h>
 
 namespace discofloor
 {
-    nlohmann::json bot_settings::struct_to_json() const
+    nlohmann::json bot_settings::struct_to_json(const bulbtils::file::settings& save_settings) const
     {
         return
         {
             { "prefix", prefix },
             { "disabled_modules", disabled_modules },
             { "data_folder", data_folder },
-            { "max_data_size_id", fixedphilip::file::size_to_string(max_data_size_id) },
-            { "max_data_size_total", fixedphilip::file::size_to_string(max_data_size_total) },
+            { "max_data_size_id", bulbtils::file::size_to_string(max_data_size_id) },
+            { "max_data_size_total", bulbtils::file::size_to_string(max_data_size_total) },
         };
     }
 
-    bool bot_settings::json_to_struct(const nlohmann::json& data)
+    bool bot_settings::json_to_struct(const nlohmann::json& data, const bulbtils::file::settings& load_settings)
     {
-        fixedphilip::file::json_try_at(data, "prefix", prefix, true);
-        fixedphilip::file::json_try_at(data, "disabled_modules", disabled_modules, true);
-        fixedphilip::file::json_try_at(data, "data_folder", data_folder, true);
+        json_try_at(data, "prefix", prefix, true);
+        json_try_at(data, "disabled_modules", disabled_modules, true);
+        json_try_at(data, "data_folder", data_folder, true);
 
         std::string max_data_size_id_str;
-        if (fixedphilip::file::json_try_at(data, "max_data_size_id", max_data_size_id_str, true))
+        if (json_try_at(data, "max_data_size_id", max_data_size_id_str, true))
         {
             try
             {
-                // todo nuke
-                fixedphilip::math::number_t max_data_size_id_num;
-                fixedphilip::math::conversion::convert(max_data_size_id_str, "b", -1, false, nullptr, nullptr, &max_data_size_id_num);
-                max_data_size_id = static_cast<uintmax_t>(max_data_size_id_num);
+                max_data_size_id = static_cast<uintmax_t>(bulbtils::file::string_to_size(max_data_size_id_str));
             }
             catch (std::exception& e)
             {
-                fixedphilip::log::error(std::format("Failed to parse 'max_data_size_id' for bot settings - {}", e.what()));
+                if (load_settings.error_callback)
+                {
+                    load_settings.error_callback(std::format("Failed to parse 'max_data_size_id' for bot settings - {}", e.what()));
+                }
             }
         }
 
         std::string max_data_size_total_str;
-        if (fixedphilip::file::json_try_at(data, "max_data_size_total", max_data_size_total_str, true))
+        if (json_try_at(data, "max_data_size_total", max_data_size_total_str, true))
         {
             try
             {
-                fixedphilip::math::number_t max_data_size_total_num;
-                fixedphilip::math::conversion::convert(max_data_size_total_str, "b", -1, false, nullptr, nullptr, &max_data_size_total_num);
-                max_data_size_total = static_cast<uintmax_t>(max_data_size_total_num);
+                max_data_size_id = static_cast<uintmax_t>(bulbtils::file::string_to_size(max_data_size_total_str));
             }
             catch (std::exception& e)
             {
-                fixedphilip::log::error(std::format("Failed to parse 'max_data_size_total' for bot settings - {}", e.what()));
+                if (load_settings.error_callback)
+                {
+                    load_settings.error_callback(std::format("Failed to parse 'max_data_size_total' for bot settings - {}", e.what()));
+                }
             }
         }
 
@@ -75,69 +73,37 @@ namespace discofloor
     {
         // create a copy of the data we will pass down to settings, but without the token
         auto data_copy = data;
-        bool token_valid = fixedphilip::file::json_try_at(data_copy, "token", token, true);
+        bool token_valid = json_try_at(data_copy, "token", token, true);
         data_copy.erase("token");
         return settings.json_to_struct(data_copy);
     }
 
-    bool bot_config::load_from_file(const std::string& filename)
+    bool bot_config::load_check_save(const bulbtils::file::settings& file_settings)
     {
-        fixedphilip::file::settings config_settings
-        {
-            .filename = filename,
-            .create_if_not_found = true,
-            .log = true,
-        };
+        file_settings.create_if_not_found = true;
 
-        auto result = load(config_settings);
-        if (result == fixedphilip::file::r_file_not_found)
+        auto result = load(file_settings);
+        if (result == bulbtils::file::r_file_not_found)
         {
-            // todo ?
-            fixedphilip::log::warning("Default config saved - make sure to update your bot token");
+            if (file_settings.warning_callback)
+            {
+                file_settings.warning_callback("Default config saved - make sure to update your bot token");
+            }
             return false;
         }
-        else if (result != fixedphilip::file::r_success)
+        else if (result != bulbtils::file::r_success)
         {
             // logs are already printed for us
             return false;
         }
 
-        if (token == FIXEDPHILIP_DEFAULT_TOKEN || token.empty())
+        if (token == DISCOFLOOR_DEFAULT_TOKEN || token.empty())
         {
-            fixedphilip::log::error("Bot token not set in config file");
-            return false;
-        }
-
-        if (settings.prefix.empty())
-        {
-            fixedphilip::log::info("Old-style commands disabled (prefix is blank)");
-        }
-        else
-        {
-            fixedphilip::log::info(std::format("Global prefix for old-style commands set to '{}'", settings.prefix));
-        }
-
-        if (settings.disabled_modules.empty())
-        {
-            fixedphilip::log::info("No modules will be disabled");
-        }
-        else
-        {
-            std::string result_log = std::format("If existing and enabled, {} module{} will be disabled", settings.disabled_modules.size(), settings.disabled_modules.size() == 1 ? "" : "s");
-            bool first_module = true;
-            for (auto& module : settings.disabled_modules)
+            if (file_settings.error_callback)
             {
-                if (first_module)
-                {
-                    result_log += ": '" + module + "'";
-                }
-                else
-                {
-                    result_log += ", '" + module + "'";
-                }
-                first_module = false;
+                file_settings.error_callback("Bot token not set in config file");
             }
-            fixedphilip::log::info(result_log);
+            return false;
         }
 
         // using this opportunity to add any new keys that might not exist
@@ -156,12 +122,12 @@ namespace discofloor
 
     const dpp::interaction_create_t* bot::command::run_event::get_interaction_create() const
     {
-        return std::visit([](auto&& arg) -> const dpp::interaction_create_t*
+        return std::visit([](auto&& event)
         {
-            using T = std::decay_t<decltype(arg)>;
+            using T = std::decay_t<decltype(event)>;
             if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
             {
-                return &arg;
+                return &event;
             }
             else
             {
@@ -182,99 +148,122 @@ namespace discofloor
 
     dpp::user bot::command::run_event::get_command_invoker() const
     {
-        // todo repalce with visit . . .
-        if (auto message_create = get_message_create())
+        return std::visit([](auto&& event)
         {
-            return message_create->msg.author;
-        }
-        return get_interaction_create()->command.usr;
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                return event.command.usr;
+            }
+            else
+            {
+                return event.msg.author;
+            }
+        },
+        *this);
     }
 
     void bot::command::run_event::reply(const dpp::message& msg, dpp::command_completion_event_t callback) const
     {
-        if (auto message_create = get_message_create())
+        std::visit([](auto&& event)
         {
-            message_create->reply(msg, false, callback);
-            return;
-        }
-        get_interaction_create()->reply(msg, callback);
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                event.reply(msg, callback);
+            }
+            else
+            {
+                event.reply(msg, false, callback);
+            }
+        },
+        *this);
     }
 
     dpp::async<dpp::confirmation_callback_t> bot::command::run_event::co_reply(const dpp::message& msg) const
     {
-        if (auto message_create = get_message_create())
+        std::visit([](auto&& event)
         {
-            return message_create->co_reply(msg);
-        }
-        return get_interaction_create()->co_reply(msg);
+            event.co_reply(msg);
+        },
+        *this);
     }
 
     void bot::command::run_event::thinking_start() const
     {
-        if (auto message_create = get_message_create())
+        std::visit([](auto&& event)
         {
-            message_create->owner->channel_typing(message_create->msg.channel_id);
-            return;
-        }
-        get_interaction_create()->thinking();
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                event.thinking();
+            }
+            else
+            {
+                event.owner->channel_typing(event.msg.channel_id);
+            }
+        },
+        *this);
     }
 
     dpp::async<dpp::confirmation_callback_t> bot::command::run_event::co_thinking_start() const
     {
-        if (auto message_create = get_message_create())
+        return std::visit([](auto&& event)
         {
-            return message_create->owner->co_channel_typing(message_create->msg.channel_id);
-        }
-        return get_interaction_create()->co_thinking();
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                return event.co_thinking();
+            }
+            else
+            {
+                return event.owner->co_channel_typing(message_create.msg.channel_id);
+            }
+        },
+        *this);
     }
 
     void bot::command::run_event::thinking_end(const dpp::message& msg, dpp::command_completion_event_t callback) const
     {
-        if (auto message_create = get_message_create())
+        return std::visit([](auto&& event)
         {
-            message_create->reply(msg, false, callback);
-            return;
-        }
-        get_interaction_create()->edit_original_response(msg, callback);
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                return event.edit_original_response(msg, callback);
+            }
+            else
+            {
+                return event.reply(msg, false, callback);
+            }
+        },
+        *this);
     }
 
     void bot::command::run_event::reply_not_impl_use_other() const
     {
-        std::string command_text;
-
-        auto cluster = get_bot();
-        auto prefix = cluster->settings().prefix;
-        
-        if (auto slash_command = get_slash_command())
+        std::visit([](auto&& event)
         {
-            if (prefix.empty())
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_same_v<dpp::slashcommand_t, T>)
             {
-                reply(":warning: **| Not implemented.**");
-                return;
+                if (prefix.empty())
+                {
+                    event.reply(":warning: **| Not implemented.**");
+                    return;
+                }
+                event.reply(":warning: **| Not implemented, use `" + prefix + event.command.get_command_name() + "` instead.**");
             }
-            command_text = "`" + prefix + slash_command->command.get_command_name() + "`";
-        }
-        else if (auto message_create = get_message_create())
-        {
-            auto prefix_len = prefix.length();
-            auto name = message_create->msg.content.substr(prefix_len, message_create->msg.content.find(' ') - prefix_len);
-
-            auto snowflake = cluster->slash_command_snowflake(name);
-            if (snowflake == dpp::snowflake(0))
+            else if constexpr (std::is_same_v<discofloor::message_command_t, T>)
             {
-                cluster->log(dpp::ll_error, "Failed to find snowflake for command " + name);
-                command_text = "`/" + name + "`";
+                event.reply(":warning: **| Not implemented, use " + event.command_interaction().get_mention() + " instead.**");
             }
             else
             {
-                command_text = dpp::utility::slashcommand_mention(snowflake, name);
+                static_assert(!sizeof(T*), "Unsupported type T");
             }
-        }
-        else
-        {
-            throw std::logic_error("reply_not_impl_use_other called from unsupported run_event variant");
-        }
-        reply(std::format(":warning: **| Not implemented, use {} instead.**", command_text));
+        },
+        *this);
     }
 
     dpp::task<void> bot::ready_event(const dpp::ready_t& event)
@@ -282,29 +271,10 @@ namespace discofloor
         if (dpp::run_once<struct ready_event_init>())
         {
             auto cluster = static_cast<bot*>(event.owner);
-            if (!cluster)
-            {
-                fixedphilip::log::error("ready_event_init: owner was null");
-                co_return;
-            }
             cluster->ready_init_done_ = true;
             cluster->log(dpp::ll_info, std::format("Connected and logged in as: {} ({})", cluster->me.format_username(), std::to_string(cluster->me.id)));
             cluster->create_commands_async();
         }
-    }
-
-    dpp::task<void> bot::log_event(const dpp::log_t& event)
-    {
-        // line 195 of cluster.cpp doesn't seem correct... 		dpp::log_t logmsg(nullptr, 0, msg); - why pass nullptr/0 ?! ?! ?!
-        fixedphilip::log::implementation(
-            event.severity,
-            //std::format("Cl: {}, Sh: {}", 
-            //    event.owner ? std::to_string(event.owner->cluster_id) : "N/A", 
-            //    event.shard), 
-            "",
-            event.message);
-
-        co_return;
     }
 
     void bot::create_commands_async()
@@ -361,6 +331,7 @@ namespace discofloor
             if (result.is_error())
             {
                 cluster->log(dpp::ll_error, "Command creation failed - " + result.get_error().human_readable);
+                co_return;
             }
 
             auto command_map = std::get<dpp::slashcommand_map>(result);
@@ -409,16 +380,19 @@ namespace discofloor
                             if (!prefix.empty())
                             {
                                 auto chat_command = std::format("{}{}", prefix, command.name);
+
+                                //dpp::command_interaction command; // todo
+
                                 if (event.msg.content == chat_command)
                                 {
-                                    co_await command.run(fixedphilip::discord::bot::command::run_event(event, {}));
+                                    co_await command.run(run_event(discofloor::message_command_t(event, {})));
                                 }
                                 else if (event.msg.content.starts_with(chat_command + " "))
                                 {
                                     // the first token will always be the command itself, since slashcommands can't have spaces
                                     // message/user context menu commands can, however, have spaces, but we don't care about those here
-                                    auto chat_tokens = fixedphilip::utils::string::split_by_whitespace(event.msg.content);
-                                    std::vector<dpp::command_data_option> options;
+                                    auto chat_tokens = bulbtils::string::split_by_whitespace(event.msg.content);
+                                    //std::vector<dpp::command_data_option> options;
 
                                     /*
                                     
@@ -436,7 +410,7 @@ namespace discofloor
 
                                     */
 
-                                    co_await command.run(fixedphilip::discord::bot::command::run_event(event, options));
+                                    co_await command.run(run_event(discofloor::message_command_t(event, {})));
                                 }
                             }
                         }
@@ -444,7 +418,7 @@ namespace discofloor
                         {
                             if (event.command.get_command_name() == command.name)
                             {
-                                co_await command.run(fixedphilip::discord::bot::command::run_event(event));
+                                co_await command.run(run_event(event));
                             }
                         }
                         else
@@ -455,7 +429,6 @@ namespace discofloor
                         }
                     };
 
-                    module_command->snowflake = snowflake;
                     if (module_command->type == dpp::ctxm_chat_input)
                     {
                         module_command->event_handles[0] = cluster->on_slashcommand.attach(event_router_async);
@@ -473,12 +446,6 @@ namespace discofloor
                     {
                         module_command->event_handles[0] = cluster->on_user_context_menu.attach(event_router_async);
                     }
-                    else
-                    {
-                        // TODO: most likely unreachable
-                        cluster->log(dpp::ll_error, std::format("Command '{}' is of invalid type", module_command->name));
-                        cluster->module_commands_.erase(module_command);
-                    }
                 }
             }
 
@@ -493,127 +460,130 @@ namespace discofloor
         // it CAN'T be run synchronously - if we block the thread, the REST API request queue NEVER gets serviced !!!
         current_application_get([](const dpp::confirmation_callback_t& result) -> dpp::task<void>
         {
-            if (auto app = fixedphilip::discord::get_if<dpp::application>("fetch_app_info_async, current_application_get", result))
+            // HACK: you can't really do any of this safely anyways, might as well cast away the const
+            auto cluster = static_cast<bot*>(const_cast<dpp::cluster*>(result.bot));
+
+            if (result.is_error())
             {
-                // HACK: you can't really do any of this safely anyways, might as well cast away the const
-                auto cluster = static_cast<bot*>(const_cast<dpp::cluster*>(result.bot));
-                if (!cluster)
+                cluster->log(dpp::ll_error, "Failed to fetch app info - " + result.get_error().human_readable);
+                co_return;
+            }
+
+            auto app = std::get<dpp::application>(result);
+
+            auto& app_owner = app->owner;
+            cluster->app_owner_ = app_owner;
+            cluster->log(dpp::loglevel::ll_info, std::format("Application (instance) owner is: {} ({})", app_owner.username, std::to_string(app_owner.id)));
+
+            // check for any privileged intents - if we don't have permission to use them, disable them
+            uint32_t intents_to_disable = 0;
+
+            if (!(app->flags & (dpp::apf_gateway_guild_members_limited | dpp::apf_gateway_guild_members)) && ((cluster->intents & dpp::i_guild_members) != 0))
+            {
+                cluster->log
+                (
+                    dpp::ll_warning,
+                    "The 'Guild Members' privileged intent was requested but is not enabled for this application. "
+                    "Features that require 'on_guild_member_add/remove' (when users join or leave a server), "
+                    "'on_guild_member_update' (when a user's server info is updated) or complete member lists of servers, "
+                    "such as displaying accurate statistics as to how many users the bot is serving, will not work for this session. "
+                    "Visit the Discord Developer Portal page for your application/bot to enable the intent and fix this issue."
+                );
+                intents_to_disable |= dpp::i_guild_members;
+            }
+
+            if (!(app->flags & (dpp::apf_gateway_presence_limited | dpp::apf_gateway_presence)) && ((cluster->intents & dpp::i_guild_presences) != 0))
+            {
+                cluster->log
+                (
+                    dpp::ll_warning,
+                    "The 'Guild Presences' privileged intent was requested but is not enabled for this application. "
+                    "Features that require user presence (status, activities) updates will not work for this session. "
+                    "Visit the Discord Developer Portal page for your application/bot to enable the intent and fix this issue."
+                );
+                intents_to_disable |= dpp::i_guild_presences;
+            }
+
+            if (!(app->flags & (dpp::apf_gateway_message_content_limited | dpp::apf_gateway_message_content)) && ((cluster->intents & dpp::i_message_content) != 0))
+            {
+                cluster->log
+                (
+                    dpp::ll_warning,
+                    "The 'Message Content' privileged intent was requested but is not enabled for this application. "
+                    "Features that require 'on_message_create' (when a message is sent) or 'on_message_update' "
+                    "(when a message is edited), such as old-style prefix commands, will not work for this session. "
+                    "Visit the Discord Developer Portal page for your application/bot to enable the intent and fix this issue."
+                );
+                intents_to_disable |= dpp::i_message_content;
+
+                // disable on_message_create to prevent log spam
+                std::shared_lock _(cluster->module_commands_mutex_);
+                for (auto& command : cluster->module_commands_)
                 {
-                    fixedphilip::log::error("fetch_app_info_async, current_application_get: bot was null");
-                    co_return;
-                }
-
-                auto& app_owner = app->owner;
-                cluster->app_owner_ = app_owner;
-                cluster->log(dpp::loglevel::ll_info, std::format("Application (instance) owner is: {} ({})", app_owner.username, std::to_string(app_owner.id)));
-
-                // check for any privileged intents - if we don't have permission to use them, disable them
-                uint32_t intents_to_disable = 0;
-
-                if (!(app->flags & (dpp::apf_gateway_guild_members_limited | dpp::apf_gateway_guild_members)) && ((cluster->intents & dpp::i_guild_members) != 0))
-                {
-                    fixedphilip::log::warning
-                    (
-                        "The 'Guild Members' privileged intent was requested but is not enabled for this application. "
-                        "Features that require 'on_guild_member_add/remove' (when users join or leave a server), "
-                        "'on_guild_member_update' (when a user's server info is updated) or complete member lists of servers, "
-                        "such as displaying accurate statistics as to how many users the bot is serving, will not work for this session. "
-                        "Visit the Discord Developer Portal page for your application/bot to enable the intent and fix this issue."
-                    );
-                    intents_to_disable |= dpp::i_guild_members;
-                }
-
-                if (!(app->flags & (dpp::apf_gateway_presence_limited | dpp::apf_gateway_presence)) && ((cluster->intents & dpp::i_guild_presences) != 0))
-                {
-                    fixedphilip::log::warning
-                    (
-                        "The 'Guild Presences' privileged intent was requested but is not enabled for this application. "
-                        "Features that require user presence (status, activities) updates will not work for this session. "
-                        "Visit the Discord Developer Portal page for your application/bot to enable the intent and fix this issue."
-                    );
-                    intents_to_disable |= dpp::i_guild_presences;
-                }
-
-                if (!(app->flags & (dpp::apf_gateway_message_content_limited | dpp::apf_gateway_message_content)) && ((cluster->intents & dpp::i_message_content) != 0))
-                {
-                    fixedphilip::log::warning
-                    (
-                        "The 'Message Content' privileged intent was requested but is not enabled for this application. "
-                        "Features that require 'on_message_create' (when a message is sent) or 'on_message_update' "
-                        "(when a message is edited), such as old-style prefix commands, will not work for this session. "
-                        "Visit the Discord Developer Portal page for your application/bot to enable the intent and fix this issue."
-                    );
-                    intents_to_disable |= dpp::i_message_content;
-
-                    // disable on_message_create to prevent log spam
-                    std::shared_lock _(cluster->module_commands_mutex_);
-                    for (auto& command : cluster->module_commands_)
+                    if (command.type == dpp::ctxm_chat_input)
                     {
-                        if (command.type == dpp::ctxm_chat_input)
-                        {
-                            cluster->on_message_create.detach(command.event_handles[1]);
-                        }
+                        cluster->on_message_create.detach(command.event_handles[1]);
                     }
                 }
+            }
 
-                // shards that have already started will be stuck in a reconnect loop if we don't fix their intents
-                // we don't need to reconnect them manually - they'll automatically reconnect anyways
-                // or, if we manage to update the intent before the initial connection, there won't be a need for a reconnect
-                if (intents_to_disable)
+            // shards that have already started will be stuck in a reconnect loop if we don't fix their intents
+            // we don't need to reconnect them manually - they'll automatically reconnect anyways
+            // or, if we manage to update the intent before the initial connection, there won't be a need for a reconnect
+            if (intents_to_disable)
+            {
+                cluster->intents &= ~intents_to_disable;
+
+                // HACK: ideally we'd use a unique_lock for the cluster's shards_mutex, but it is inaccessible (private)
+                for (auto& shard : cluster->get_shards())
                 {
-                    cluster->intents &= ~intents_to_disable;
-
-                    // HACK: ideally we'd use a unique_lock for the cluster's shards_mutex, but it is inaccessible (private)
-                    for (auto& shard : cluster->get_shards())
+                    auto client = shard.second;
+                    if (client)
                     {
-                        auto client = shard.second;
-                        if (client)
-                        {
-                            client->intents &= ~intents_to_disable;
-                        }
+                        client->intents &= ~intents_to_disable;
                     }
                 }
             }
         });
     }
 
-    fixedphilip::file::settings bot::data_file_settings(dpp::snowflake id, const std::string& name)
+    bulbtils::file::settings bot::data_file_settings(dpp::snowflake id, const std::string& name)
     {
         auto filename = name + ".json";
         auto data_path = data_folder_id(id) / filename;
-
-        fixedphilip::file::settings settings
-        {
-            .filename = data_path.string(),
-            .create_if_not_found = true,
-            .log = true,
-        };
-        return settings;
+        return append_loggers({ .filename = data_path.string(), .create_if_not_found = true });
     }
 
-    bot::bot(const std::string& token, const bot_settings& settings, uint32_t intents, uint32_t shards, uint32_t cluster_id,
-        uint32_t maxclusters, bool compressed, dpp::cache_policy_t policy, uint32_t pool_threads)
-        : dpp::cluster(token, intents, shards, cluster_id, maxclusters, compressed, policy, pool_threads), settings_(settings)
+    void bot::after_construction()
     {
         // attach our own events first (modules do it in their own inits, but we do their commands ourselves later)
-        on_log.attach(log_event);
         on_ready.attach(ready_event);
 
         // we're doing this here instead of on_ready_init because we want this to run as soon as possible
         // to ideally avoid restarting clusters/shards after potentially fixing up their intents
         fetch_app_info_async();
 
+        if (settings_.prefix.empty())
+        {
+            log(dpp::ll_info, "Old-style commands disabled (prefix is blank)");
+        }
+        else
+        {
+            log(dpp::ll_info, "Global prefix for old-style commands set to '" + settings.prefix + "'"));
+        }
+
         bool first_module = true;
-        std::string result_log = "";
+        std::string module_names = "";
 
         // initialize modules alphabetically by their name
         // their commands are created in on_ready_init
-        auto iter = fixedphilip::discord::bot::module::first();
+        auto iter = module::first();
         do
         {
             std::string name = iter->name();
             if (std::find(settings_.disabled_modules.begin(), settings_.disabled_modules.end(), name) != settings_.disabled_modules.end())
             {
+                log(dpp::ll_info, "Module '" + name + "' is listed in disabled_modules and will not be initialized");
                 continue;
             }
 
@@ -624,18 +594,18 @@ namespace discofloor
 
             if (first_module)
             {
-                result_log += ": '" + name + "'";
+                module_names += ": '" + name + "'";
             }
             else
             {
-                result_log += ", '" + name + "'";
+                module_names += ", '" + name + "'";
             }
             first_module = false;
             loaded_modules_.push_back(iter);
         }
         while (iter = iter->next());
 
-        log(dpp::ll_info, std::format("Loaded {} module{}{}", loaded_modules_.size(), loaded_modules_.size() == 1 ? "" : "s", result_log));
+        log(dpp::ll_info, std::format("Loaded {} module{}{}", loaded_modules_.size(), loaded_modules_.size() == 1 ? "" : "s", module_names));
     }
 
     bot::~bot()
@@ -645,6 +615,12 @@ namespace discofloor
         {
             loaded_module->destroy(*this);
         }
+    }
+
+    bulbtils::file::settings& bot::append_loggers(bulbtils::file::settings& file_settings)
+    {
+        file_settings.warning_callback = [&cluster = *this](const std::string& msg) { cluster.log(dpp::ll_warning, msg); };
+        file_settings.error_callback = [&cluster = *this](const std::string& msg) { cluster.log(dpp::ll_error, msg); };
     }
 
     std::string bot::format_running_time()
@@ -674,80 +650,81 @@ namespace discofloor
 
     bool bot::add_module(module* module_to_add)
     {
+        if (!module_to_add)
+        {
+            log(dpp::ll_error, "Attempted to add a null module");
+            return false;
+        }
+        auto name = module_to_add->name();
         if (!ready_init_done_)
         {
-            // too early to add modules
+            log(dpp::ll_error, "Attempted to add module '" + name + "' before the bot's on_ready_init completed");
             return false;
         }
-
-        if (std::find(settings_.disabled_modules.begin(), settings_.disabled_modules.end(), module_to_add->name()) != settings_.disabled_modules.end())
+        if (std::find(settings_.disabled_modules.begin(), settings_.disabled_modules.end(), name) != settings_.disabled_modules.end())
         {
-            // module disabled by config
+            log(dpp::ll_error, "Attempted to add module '" + name + "' which is listed in disabled_modules");
             return false;
         }
-
         if (!module_to_add->init(*this))
         {
             // module itself did not want to be added
             return false;
         }
-
         loaded_modules_.insert(std::lower_bound(loaded_modules_.begin(), loaded_modules_.end(), module_to_add, [](const module* a, const module* b) { return strcmp(a->name(), b->name()) < 0; }), module_to_add);
         create_commands_async();
         return true;
     }
 
-    bool bot::remove_module(module* module_to_add)
+    bool bot::remove_module(module* module_to_remove)
     {
-        auto it = std::find(loaded_modules_.begin(), loaded_modules_.end(), module_to_add);
-        if (it == loaded_modules_.end())
+        if (!module_to_remove)
         {
-            // module not loaded
+            log(dpp::ll_error, "Attempted to remove a null module");
             return false;
         }
-        module_to_add->destroy(*this);
+        auto it = std::find(loaded_modules_.begin(), loaded_modules_.end(), module_to_remove);
+        if (it == loaded_modules_.end())
+        {
+            log(dpp::ll_error, "Attempted to remove module '" + module_to_remove->name() + "' which isn't even loaded");
+            return false;
+        }
+        module_to_remove->destroy(*this);
         loaded_modules_.erase(it);
         return true;
     }
 
-    dpp::snowflake bot::slash_command_snowflake(const std::string& slash_command)
-    {
-        auto module_command = std::find_if(module_commands_.begin(), module_commands_.end(), [&slash_command](const bot::module_command& other)
-        {
-            return other.name == slash_command && other.type == dpp::ctxm_chat_input;
-        });
-        if (module_command == module_commands_.end())
-        {
-            return dpp::snowflake();
-        }
-        // module_command->id is 0 for some reason
-        return module_command->snowflake;
-    }
-
-    fixedphilip::file::result bot::load_data(dpp::snowflake id, const std::string& name, bot::data& data_out)
+    bulbtils::file::result bot::load_data(dpp::snowflake id, const std::string& name, bot_data& data_out)
     {
         return data_out.load(data_file_settings(id, name));
     }
 
-    fixedphilip::file::result bot::save_data(dpp::snowflake id, const std::string& name, const bot::data& data)
+    bulbtils::file::result bot::save_data(dpp::snowflake id, const std::string& name, const bot_data& data)
     {
-        auto data_size = data.save_from_struct().size();
-        if (data_size_id(id) + data_size > settings_.max_data_size_id
-            || data_size_total() + data_size > settings_.max_data_size_total)
+        try
         {
-            return fixedphilip::file::r_write_error;
+            auto data_size = data.save_from_struct().size();
+            if (data_size_id(id) + data_size > settings_.max_data_size_id
+                || data_size_total() + data_size > settings_.max_data_size_total)
+            {
+                return bulbtils::file::r_write_error;
+            }
+        }
+        catch (std::exception& e)
+        {
+            return bulbtils::file::r_write_error;
         }
         return data.save(data_file_settings(id, name));
     }
 
     uintmax_t bot::data_size_total()
     {
-        return fixedphilip::file::get_folder_size(settings_.data_folder);
+        return bulbtils::file::get_folder_size(settings_.data_folder);
     }
 
     uintmax_t bot::data_size_id(dpp::snowflake id)
     {
-        return fixedphilip::file::get_folder_size(data_folder_id(id));
+        return bulbtils::file::get_folder_size(data_folder_id(id));
     }
 
     std::filesystem::path bot::data_folder_id(dpp::snowflake id)
@@ -809,22 +786,24 @@ namespace discofloor
         static bool has_guild_members_intent = false;
 
         static auto next_call = std::chrono::minutes(1);
-        if (fixedphilip::utils::time::run_if_passed<struct fetch_app_data>(next_call))
+        if (bulbtils::time::run_if_passed<struct fetch_app_data>(next_call))
         {
             auto result = co_await co_current_application_get();
-            if (auto app = fixedphilip::discord::get_if<dpp::application>("co_get_counts, co_current_application_get", result))
-            {
-                // these update daily, so one hour is generous enough
-                next_call = std::chrono::minutes(60);
 
-                user_install_count = app->approximate_user_install_count;
-                has_guild_members_intent = (app->flags & (dpp::apf_gateway_guild_members_limited | dpp::apf_gateway_guild_members));
-            }
-            else
+            if (result.is_error())
             {
                 // cached values are good enough, but try to update them again a bit later
                 next_call = std::chrono::minutes(1);
+
+                cluster->log(dpp::ll_error, "Failed to fetch app counts - " + result.get_error().human_readable);
+                co_return;
             }
+
+            // these update daily, so one hour is generous enough
+            next_call = std::chrono::minutes(60);
+
+            user_install_count = app->approximate_user_install_count;
+            has_guild_members_intent = (app->flags & (dpp::apf_gateway_guild_members_limited | dpp::apf_gateway_guild_members));
         }
 
         counts.servers = server_count;
