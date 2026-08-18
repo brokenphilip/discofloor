@@ -5,7 +5,6 @@
 #include <dpp/json.h>
 
 #include <format>
-#include <filesystem>
 
 namespace discofloor
 {
@@ -24,12 +23,15 @@ namespace discofloor
 		// (if you're okay with partial loads, particularly if you make use of default values, return true)
 		virtual bool json_to_struct(const nlohmann::json& data, const bulbtils::file::settings& load_settings) = 0;
 
-		//
+		// json_file already provides a sufficient save_to_struct for any kind of json file
+		// Only override if you *really* need custom behavior
 		virtual std::string save_from_struct(const bulbtils::file::settings& save_settings) const override //final
 		{
 			return struct_to_json(save_settings).dump(indent, indent_char);
 		}
 
+		// json_file already provides a sufficient load_to_struct for any kind of json file
+		// Only override if you *really* need custom behavior
 		virtual bool load_to_struct(const std::string& data, const bulbtils::file::settings& load_settings) override //final
 		{
 			try
@@ -38,10 +40,7 @@ namespace discofloor
 			}
 			catch (const std::exception& e)
 			{
-				if (load_settings.error_callback)
-				{
-					load_settings.error_callback(std::format("Exception parsing json file: {}", e.what()));
-				}
+				load_settings.error(std::format("Exception parsing json file: {}", e.what()));
 				return false;
 			}
 		}
@@ -60,10 +59,7 @@ namespace discofloor
 	{
 		if (not_found_warning && !data.contains(key))
 		{
-			if (load_settings.warning_callback)
-			{
-				load_settings.warning_callback(std::format("'{}' json key not found, using default value instead", key));
-			}
+			load_settings.warning(std::format("'{}' json key not found, using default value instead", key));
 			return false;
 		}
     
@@ -74,10 +70,7 @@ namespace discofloor
 		}
 		catch (const std::exception& e)
 		{
-			if (load_settings.error_callback)
-			{
-				load_settings.error_callback(std::format("Exception reading '{}' json key: {}", key, e.what()));
-			}
+			load_settings.error(std::format("Exception reading '{}' json key: {}", key, e.what()));
 			return false;
 		}
 	}

@@ -32,10 +32,7 @@ namespace discofloor
             }
             catch (std::exception& e)
             {
-                if (load_settings.error_callback)
-                {
-                    load_settings.error_callback(std::format("Failed to parse 'max_data_size_id' for bot settings - {}", e.what()));
-                }
+                load_settings.error(std::format("Failed to parse 'max_data_size_id' for bot settings - {}", e.what()));
             }
         }
 
@@ -48,10 +45,7 @@ namespace discofloor
             }
             catch (std::exception& e)
             {
-                if (load_settings.error_callback)
-                {
-                    load_settings.error_callback(std::format("Failed to parse 'max_data_size_total' for bot settings - {}", e.what()));
-                }
+                load_settings.error(std::format("Failed to parse 'max_data_size_total' for bot settings - {}", e.what()));
             }
         }
 
@@ -86,10 +80,7 @@ namespace discofloor
         auto result = load(new_file_settings);
         if (result == bulbtils::file::r_file_not_found)
         {
-            if (new_file_settings.warning_callback)
-            {
-                new_file_settings.warning_callback("Default config saved - make sure to update your bot token");
-            }
+            new_file_settings.warning("Default config saved - make sure to update your bot token");
             return false;
         }
         else if (result != bulbtils::file::r_success)
@@ -100,10 +91,7 @@ namespace discofloor
 
         if (token == DISCOFLOOR_DEFAULT_TOKEN || token.empty())
         {
-            if (new_file_settings.error_callback)
-            {
-                new_file_settings.error_callback("Bot token not set in config file");
-            }
+            new_file_settings.error("Bot token not set in config file");
             return false;
         }
 
@@ -336,7 +324,6 @@ namespace discofloor
                 cluster->log(dpp::ll_error, "Command creation failed - " + result.get_error().human_readable);
                 co_return;
             }
-
             auto command_map = result.get<dpp::slashcommand_map>();
 
             // we take the command_map results instead of our own (later down the line)
@@ -471,7 +458,6 @@ namespace discofloor
                 cluster->log(dpp::ll_error, "Failed to fetch app info - " + result.get_error().human_readable);
                 co_return;
             }
-
             auto app = result.get<dpp::application>();
 
             auto& app_owner = app.owner;
@@ -807,7 +793,6 @@ namespace discofloor
         if (bulbtils::time::run_if_passed<struct fetch_app_data>(next_call))
         {
             auto result = co_await co_current_application_get();
-
             if (result.is_error())
             {
                 // cached values are good enough, but try to update them again a bit later
@@ -816,7 +801,6 @@ namespace discofloor
                 log(dpp::ll_error, "Failed to fetch app counts - " + result.get_error().human_readable);
                 co_return counts;
             }
-
             auto app = result.get<dpp::application>();
 
             // these update daily, so one hour is generous enough
