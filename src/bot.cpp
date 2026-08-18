@@ -339,13 +339,22 @@ namespace discofloor
                 {
                     if (first_command)
                     {
-                        result_log += ": '" + command.name + "'";
+                        result_log += ": ";
                     }
                     else
                     {
-                        result_log += ", '" + command.name + "'";
+                        result_log += ", ";
                     }
                     first_command = false;
+
+                    std::string type;
+                    switch (command.type)
+                    {
+                        case dpp::ctxm_chat_input: type = "CHAT_INPUT"; break;
+                        case dpp::ctxm_user: type = "USER"; break;
+                        case dpp::ctxm_message: type = "MESSAGE"; break;
+                    }
+                    result_log += "'" + command.name + "' (" + type + ")";
 
                     // find module command from the slashcommand map we're given (they're identical if their names AND TYPES match)
                     auto module_command = std::find_if(cluster->module_commands_.begin(), cluster->module_commands_.end(), [&command](const bot::module_command& other)
