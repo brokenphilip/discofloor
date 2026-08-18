@@ -52,16 +52,9 @@ namespace discofloor
         virtual nlohmann::json struct_to_json(const bulbtils::file::settings& save_settings) const override final;
         virtual bool json_to_struct(const nlohmann::json& data, const bulbtils::file::settings& load_settings) override final;
 
-		// Load
-		// This is preferred over manually calling load() and save()
-
-        // Use this instead of load() to load the config
-        // If it returns true, proceed with instantiating the bot
-
-
 		// Loads a discofloor bot config, performs value checks, and saves if necessary
 		// This is preferred over manual calls to load()/save() and manually checking values
-		//
+		// 
 		// Returns false if loading the config or a value check failed
 		// Only instantiate a discofloor bot if this returns true
 		//
@@ -320,10 +313,6 @@ namespace discofloor
 		// Should you decide to modify a loaded module, you are responsible for its thread safety
 		inline auto loaded_modules() { std::shared_lock _(loaded_modules_mutex_); return loaded_modules_; }
 
-		// Given a slash command name, returns its snowflake
-		// Only works for CHAT_INPUT commands (context menu commands will not work)
-		dpp::snowflake slash_command_snowflake(const std::string& slash_command);
-
 		// Add (late-load) a module to the bot - returns true on success
 		// Returns false if called too early (must be after on_ready_init)
 		// Also returns false if the module failed to load or is disabled by config/settings file
@@ -347,14 +336,14 @@ namespace discofloor
 
 		// Returns the current size of all bot data
 		// The maximum value can be found under settings()
-		uintmax_t data_size_total();
+		inline uintmax_t data_size_total() { return bulbtils::file::get_folder_size(settings_.data_folder); }
 
 		// Returns the current size of bot data for this ID
 		// The maximum value can be found under settings()
-		uintmax_t data_size_id(dpp::snowflake id);
+		inline uintmax_t data_size_id(dpp::snowflake id) { return bulbtils::file::get_folder_size(data_folder_id(id)); }
 
 		// Given an ID, return the respective bot data folder
-		std::filesystem::path data_folder_id(dpp::snowflake id);
+		std::filesystem::path data_folder_id(dpp::snowflake id) { return std::filesystem::path(settings_.data_folder) / std::to_string(id); }
 
 		// Returns this bot's counts, see the bot_counts data structure above
 		dpp::task<bot_counts> co_get_counts();

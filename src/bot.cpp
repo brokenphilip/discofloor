@@ -89,14 +89,31 @@ namespace discofloor
             return false;
         }
 
+        // using this opportunity to add any new keys that might not exist
+        save(new_file_settings);
+
         if (token == DISCOFLOOR_DEFAULT_TOKEN || token.empty())
         {
             new_file_settings.error("Bot token not set in config file");
             return false;
         }
 
-        // using this opportunity to add any new keys that might not exist
-        save(new_file_settings);
+        std::filesystem::path path = settings.data_folder;
+        if (!path.empty())
+        {
+            try
+            {
+                if (std::filesystem::create_directories(path))
+                {
+                    file_settings.warning("Missing path directories for data folder '" + settings.data_folder + "' - creating...");
+                }
+            }
+            catch (std::exception& e)
+            {
+                file_settings.error(std::format("Failed to create missing path directories for data folder '{}' - {}", settings.data_folder, e.what()));
+                return false;
+            }
+        }
         return true;
     }
 
@@ -250,7 +267,7 @@ namespace discofloor
             }
             else
             {
-                throw std::logic_error("This function is not supported for context menu slashcommands");
+                throw std::logic_error("reply_not_impl_use_other is not supported for context menu slashcommands");
             }
         },
         *this);
@@ -576,6 +593,21 @@ namespace discofloor
             log(dpp::ll_info, "Global prefix for old-style commands set to '" + settings_.prefix + "'");
         }
 
+        try
+        {
+            auto size = data_size_total();
+            auto max = settings_.max_data_size_total;
+
+            log(dpp::ll_info, std::format("Bot data storage usage: {} / {} ({:.2f} %)",
+                bulbtils::file::size_to_string(size),
+                bulbtils::file::size_to_string(max),
+                ((double)size / (double)max) * 100.0));
+        }
+        catch (std::exception& e)
+        {
+            log(dpp::ll_error, std::format("Failed to get bot data storage usage (bot data functionality might not work properly) - {}", e.what()));
+        }
+
         bool first_module = true;
         std::string module_names = "";
 
@@ -728,21 +760,6 @@ namespace discofloor
             return bulbtils::file::r_write_error;
         }
         return data.save(file_settings);
-    }
-
-    uintmax_t bot::data_size_total()
-    {
-        return bulbtils::file::get_folder_size(settings_.data_folder);
-    }
-
-    uintmax_t bot::data_size_id(dpp::snowflake id)
-    {
-        return bulbtils::file::get_folder_size(data_folder_id(id));
-    }
-
-    std::filesystem::path bot::data_folder_id(dpp::snowflake id)
-    {
-        return std::filesystem::path(settings_.data_folder) / std::to_string(id);
     }
 
     dpp::task<bot_counts> bot::co_get_counts()
