@@ -248,6 +248,9 @@ namespace discofloor
 	// - Additional info such as settings, instance owner, etc...
 	class bot : public dpp::cluster
 	{
+		template <typename T>
+		using event_t = dpp::task<void>(const T& event);
+
 		bot_settings settings_;
 
 		const bulbtils::time::raii_stopwatch running_time_;
@@ -258,20 +261,27 @@ namespace discofloor
 
 		struct module_command : public command
 		{
+			bot* owner;
 			dpp::event_handle event_handles[2] { SIZE_MAX };
 			
-			inline module_command(const command& cmd) : command(cmd) {}
+			inline module_command(const command& cmd, bot* owner)
+				: command(cmd), owner(owner) {}
+
+			event_t<dpp::message_create_t> message_create_event;
+
+			void attach_events();
+			void detach_events();
 		};
 		std::vector<module_command> module_commands_;
 		std::shared_mutex module_commands_mutex_;
+
+		std::function<void(command&)> for_each_command_;
 
 		dpp::user app_owner_;
 		std::shared_mutex app_owner_mutex_;
 
 		std::atomic_bool ready_init_done_ = false;
 
-		template <typename T>
-		using event_t = dpp::task<void>(const T& event);
 		static event_t<dpp::ready_t> ready_event;
 
 		void create_commands_async();
@@ -300,6 +310,8 @@ namespace discofloor
 		}
 
 		virtual ~bot();
+
+		inline void for_each_command(std::function<void(command&)> callback) { for_each_command_ = std::move(callback); }
 
 		// Append the bot's own logging functions to a file settings structure
 		// This, of course, overwrites any logging functions already set in the struct
