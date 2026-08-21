@@ -5,6 +5,18 @@
 
 namespace discofloor
 {
+    std::string get_username(const dpp::user& user)
+    {
+        auto username = user.username;
+
+        auto discrim = user.discriminator;
+        if (discrim)
+        {
+            username += "#" + dpp::leading_zeroes(discrim, 4);
+        }
+        return username;
+    }
+
     nlohmann::json bot_settings::struct_to_json(const bulbtils::file::settings& save_settings) const
     {
         return
@@ -169,6 +181,40 @@ namespace discofloor
         *this);
     }
 
+    dpp::guild* run_event::get_guild() const
+    {
+        return std::visit([](auto&& event)
+        {
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                return dpp::find_guild(event.command.guild_id);
+            }
+            else
+            {
+                return dpp::find_guild(event.msg.guild_id);
+            }
+        },
+        *this);
+    }
+
+    dpp::command_interaction run_event::command_interaction() const
+    {
+        return std::visit([](auto&& event)
+        {
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                return event.command.get_command_interaction();
+            }
+            else
+            {
+                return event.command_interaction();
+            }
+        },
+        *this);
+    }
+
     void run_event::reply(const dpp::message& msg, dpp::command_completion_event_t callback) const
     {
         std::visit([&msg, &callback](auto&& event)
@@ -246,28 +292,64 @@ namespace discofloor
         *this);
     }
 
-    void run_event::reply_not_impl_use_other() const
+    dpp::command_value run_event::get_cmd_param(const std::string& param_name) const
     {
-        std::visit([](auto&& event)
+        return std::visit([&param_name](auto&& event) -> dpp::command_value
         {
             using T = std::decay_t<decltype(event)>;
+
+            // can't use is_base_of_v here because of a bug pertaining to get_parameter incorrectly being classified as inaccessible
             if constexpr (std::is_same_v<dpp::slashcommand_t, T>)
             {
-                auto prefix = static_cast<bot*>(event.owner)->settings().prefix;
-                if (prefix.empty())
-                {
-                    event.reply(":warning: **| Not implemented.**");
-                    return;
-                }
-                event.reply(":warning: **| Not implemented, use `" + prefix + event.command.get_command_name() + "` instead.**");
+                return event.get_parameter(param_name);
             }
             else if constexpr (std::is_same_v<discofloor::message_command_t, T>)
             {
-                event.reply(":warning: **| Not implemented, use " + event.command_interaction().get_mention() + " instead.**");
+                auto command_interaction = event.command_interaction();
+                for (const auto& option : command_interaction.options)
+                {
+                    if (option.type != dpp::co_sub_command && option.type != dpp::co_sub_command_group && option.name == param_name)
+                    {
+                        return option.value;
+                    }
+                }
+
+                /* if not found in the first level, go one level deeper */
+                for (const auto& option : command_interaction.options)
+                {
+                    // command
+                    for (const auto& sub_option : option.options)
+                    {
+                        // subcommands
+                        if (sub_option.type != dpp::co_sub_command && sub_option.type != dpp::co_sub_command_group && sub_option.name == param_name)
+                        {
+                            return sub_option.value;
+                        }
+                    }
+                }
+
+                /* if not found in the second level, search it in the third dimension */
+                for (const auto& option : command_interaction.options)
+                {
+                    // command
+                    for (const auto& sub_group_option : option.options)
+                    {
+                        // subcommand groups
+                        for (const auto& sub_option : sub_group_option.options)
+                        {
+                            // subcommands
+                            if (sub_option.type != dpp::co_sub_command && sub_option.type != dpp::co_sub_command_group && sub_option.name == param_name)
+                            {
+                                return sub_option.value;
+                            }
+                        }
+                    }
+                }
+                return {};
             }
             else
             {
-                throw std::logic_error("reply_not_impl_use_other is not supported for context menu slashcommands");
+                throw std::logic_error("get_cmd_param is not supported for context menu slashcommands");
             }
         },
         *this);
@@ -279,7 +361,7 @@ namespace discofloor
         {
             auto cluster = static_cast<bot*>(event.owner);
             cluster->ready_init_done_ = true;
-            cluster->log(dpp::ll_info, std::format("Connected and logged in as: {} ({})", cluster->me.format_username(), std::to_string(cluster->me.id)));
+            cluster->log(dpp::ll_info, std::format("Connected and logged in as: {} ({})", discofloor::get_username(cluster->me), std::to_string(cluster->me.id)));
             cluster->create_commands_async();
         }
         co_return;
@@ -379,56 +461,551 @@ namespace discofloor
                         return command.name == other.name && command.type == other.type;
                     });
 
-                    // note that we're creating a copy of the module command, not keeping a reference to it,
+                    // note that we're creating a copy of the module command (which is perfectly valid), not keeping a reference to it
                     // ...because this lambda will run asynchronously at a later point, and the references would dangle in that case
                     auto event_router_async = [prefix = cluster->settings().prefix, command = *module_command](const auto& event) -> dpp::task<void>
                     {
                         using T = std::decay_t<decltype(event)>;
 
+                        // this isn't a mistake - it's still a dpp::message_create_t at this point
+                        // ...but we will turn it into a discofloor::message_command_t later down the road
                         if constexpr (std::is_same_v<T, dpp::message_create_t>)
                         {
-                            // we don't want bots to run our commands
-                            if (event.msg.author.is_bot())
+                            if (prefix.empty())
                             {
+                                // old-style commands are disabled
                                 co_return;
                             }
 
-                            if (!prefix.empty())
+                            if (event.msg.author.is_bot())
                             {
-                                auto chat_command = std::format("{}{}", prefix, command.name);
-
-                                //dpp::command_interaction command; // todo
-
-                                if (event.msg.content == chat_command)
-                                {
-                                    co_await command.run(run_event(discofloor::message_command_t(event, {})));
-                                }
-                                else if (event.msg.content.starts_with(chat_command + " "))
-                                {
-                                    // the first token will always be the command itself, since slashcommands can't have spaces
-                                    // message/user context menu commands can, however, have spaces, but we don't care about those here
-                                    auto chat_tokens = bulbtils::string::split_by_whitespace(event.msg.content);
-                                    //std::vector<dpp::command_data_option> options;
-
-                                    /*
-                                    
-                                        TODO
-
-                                        if core_cmd.options.size == 0, don't bother checking for chat tokens
-
-                                        if core_cmd.options.size > 0, there are two possibilities:
-                                        - if the first option is a subcmd (group), all the others are too
-                                        - if it's not, all the options are params
-
-                                        if core_cmd.options[i] is a subcmd group, all of its options must be subcmds, and all subcmd options must be params
-
-                                        if core_cmd.options[i] is a subcmd, all of its options must be params
-
-                                    */
-
-                                    co_await command.run(run_event(discofloor::message_command_t(event, {})));
-                                }
+                                // bots can't run commands
+                                co_return;
                             }
+
+                            auto default_cmd_interaction = [&command, &prefix, &event]() -> dpp::command_interaction
+                            {
+                                auto prefix_len = prefix.length();
+
+                                dpp::command_interaction cmd_interaction
+                                {
+                                    .id = command.id,
+                                    .name = event.msg.content.substr(prefix_len, event.msg.content.find(' ') - prefix_len),
+                                    .options = {},
+                                    .type = dpp::ctxm_chat_input,
+                                    .target_id = dpp::snowflake(0),
+                                };
+                                return cmd_interaction;
+                            };
+
+                            auto chat_command = std::format("{}{}", prefix, command.name);
+                            if (event.msg.content == chat_command)
+                            {
+                                if (command.options.empty() || !command.options[0].required)
+                                {
+                                    // command has no (required) params, we just run as-is
+                                    co_await command.run(run_event(discofloor::message_command_t(event, default_cmd_interaction())));
+                                    co_return;
+                                }
+
+                                // user ran the command without params but this command has at least one required param - print usage help
+                                // todo
+                                co_return;
+                            }
+
+                            // we know this command was definitely passed with parameters
+                            // ...since discord doesn't allow trailing whitespace at the end of messages
+                            if (event.msg.content.starts_with(chat_command + " "))
+                            {
+                                if (command.options.empty() || !command.options[0].required)
+                                {
+                                    // command has no (required) params, we just run as-is
+                                    co_await command.run(run_event(discofloor::message_command_t(event, default_cmd_interaction())));
+                                    co_return;
+                                }
+
+                                // special case - this command's only option is a string
+                                // in which case pass the entire string and run the command
+                                if (command.options.size() == 1 && command.options[0].type == dpp::co_string)
+                                {
+                                    auto cmd_interaction = default_cmd_interaction();
+
+                                    auto& option = cmd_interaction.options.emplace_back();
+                                    option.focused = false;
+                                    option.name = command.options[0].name;
+                                    option.options = {};
+                                    option.type = dpp::co_string;
+                                    option.value = event.msg.content.substr(event.msg.content.find(' ') + 1);
+
+                                    co_await command.run(run_event(discofloor::message_command_t(event, cmd_interaction)));
+                                    co_return;
+                                }
+
+                                // the first parameter will always be the command itself, since CHAT_INPUT commands can't have spaces
+                                // message/user context menu commands can, however, have spaces, but we don't care about those here
+                                auto params = bulbtils::string::split_parameters(event.msg.content);
+
+                                dpp::command_interaction cmd_interaction
+                                {
+                                    .id = command.id,
+                                    .name = params[0].substr(prefix.length()),
+                                    .options = {},
+                                    .type = dpp::ctxm_chat_input,
+                                    .target_id = dpp::snowflake(0),
+                                };
+
+                                // this lambda function handles iterating command parameters (ie. non-subcommand(-group)s)
+                                auto iterate_command_params = [&params, &event](
+                                    const std::vector<dpp::command_option>& source_options,
+                                    std::vector<dpp::command_data_option>& dest_options,
+                                    int level)
+                                {
+                                    if (source_options.empty())
+                                    {
+                                        // this (sub)command doesn't have any parameters, feel free to run as-is
+                                        return;
+                                    }
+
+                                    auto first_optional_param = std::find_if(source_options.begin(), source_options.end(), [](const dpp::command_option& option)
+                                    {
+                                        return option.required == false;
+                                    });
+
+                                    int required_levels = level + std::distance(source_options.begin(), first_optional_param);
+                                    if (params.size() < required_levels)
+                                    {
+                                        throw std::invalid_argument(std::format("This (sub)command expects at least {} parameter{}, but only {} {} passed.", 
+                                            (required_levels - 1), (required_levels - 1) == 1 ? "" : "s", (params.size() - 1), (params.size() - 1) == 1 ? "was" : "were"));
+                                    }
+
+                                    struct find_result
+                                    {
+                                        dpp::snowflake id;
+                                        std::string type;
+                                        std::string value;
+
+                                        find_result(dpp::snowflake id, const std::string& type, const std::string& value)
+                                            : id(id), type(type), value(value) {}
+                                    };
+
+                                    using find_results_base = std::vector<find_result>;
+
+                                    struct find_results : public find_results_base
+                                    {
+                                        using find_results_base::find_results_base;
+
+                                        bool add_if_match(const find_result& find_result, const std::string& needle)
+                                        {
+                                            if (find_result.value.empty())
+                                            {
+                                                return false;
+                                            }
+
+                                            auto needle_lowercase = needle;
+                                            bulbtils::string::inplace::to_lowercase(needle_lowercase);
+
+                                            auto haystack_lowercase = find_result.value;
+                                            bulbtils::string::inplace::to_lowercase(haystack_lowercase);
+
+                                            if (haystack_lowercase.find(needle_lowercase) == std::string::npos)
+                                            {
+                                                return false;
+                                            }
+
+                                            push_back(find_result);
+                                            return true;
+                                        }
+                                    };
+
+                                    auto find_users = [&event](const std::string& param) -> find_results
+                                    {
+                                        auto user = dpp::find_user(dpp::snowflake(param));
+                                        if (user)
+                                        {
+                                            return { { user->id, "User", discofloor::get_username(*user) } };
+                                        }
+
+                                        auto guild = dpp::find_guild(event.msg.guild_id);
+                                        if (!guild)
+                                        {
+                                            return {};
+                                        }
+
+                                        find_results results;
+                                        for (auto& [user_id, guild_member] : guild->members)
+                                        {
+                                            auto& user_it = *dpp::find_user(user_id);
+
+                                            if (results.add_if_match({ user_id, "User", discofloor::get_username(user_it) }, param))
+                                            {
+                                                continue;
+                                            }
+
+                                            if (results.add_if_match({ user_id, "Global name of user " + discofloor::get_username(user_it), user_it.global_name }, param))
+                                            {
+                                                continue;
+                                            }
+
+                                            if (results.add_if_match({ user_id, "Nickname of user " + discofloor::get_username(user_it), guild_member.get_nickname() }, param))
+                                            {
+                                                continue;
+                                            }
+                                        }
+                                        return results;
+                                    };
+
+                                    auto find_roles = [&event](const std::string& param) -> find_results
+                                    {
+                                        auto role = dpp::find_role(dpp::snowflake(param));
+                                        if (role)
+                                        {
+                                            return { { role->id, "Role", role->name } };
+                                        }
+
+                                        auto guild = dpp::find_guild(event.msg.guild_id);
+                                        if (!guild)
+                                        {
+                                            return {};
+                                        }
+
+                                        find_results results;
+                                        for (auto& role_id : guild->roles)
+                                        {
+                                            auto& role_it = *dpp::find_role(role_id);
+
+                                            if (results.add_if_match({ role_id, "Role", role_it.name }, param))
+                                            {
+                                                continue;
+                                            }
+                                        }
+                                        return results;
+                                    };
+
+                                    auto find_channels = [&event](const std::string& param) -> find_results
+                                    {
+                                        auto channel = dpp::find_channel(dpp::snowflake(param));
+                                        if (channel)
+                                        {
+                                            return { { channel->id, "Channel", channel->name } };
+                                        }
+
+                                        auto guild = dpp::find_guild(event.msg.guild_id);
+                                        if (!guild)
+                                        {
+                                            return {};
+                                        }
+
+                                        find_results results;
+                                        for (auto& channel_id : guild->channels)
+                                        {
+                                            auto& channel_it = *dpp::find_channel(channel_id);
+
+                                            if (results.add_if_match({ channel_id, "Channel", channel_it.name }, param))
+                                            {
+                                                continue;
+                                            }
+                                        }
+                                        return results;
+                                    };
+
+                                    auto parse_find_results = [](const std::vector<find_result>& results) -> dpp::snowflake
+                                    {
+                                        std::string blablabla = "matches found for the given input (try narrowing your search, providing an ID, or running the command in a guild (that i'm in) if you aren't already)";
+                                        if (results.empty())
+                                        {
+                                            throw std::invalid_argument("no " + blablabla + ".");
+                                        }
+
+                                        if (results.size() > 1)
+                                        {
+                                            std::string matches = "";
+                                            for (int i = 0; i < results.size(); i++)
+                                            {
+                                                auto& find_result = results[i];
+                                                matches += std::format("\n{}. \"{}\" ({}) - `{}`", i + 1, dpp::utility::markdown_escape(find_result.value, true), find_result.type, std::to_string(find_result.id));
+                                            }
+                                            throw std::invalid_argument("multiple " + blablabla + ":" + matches);
+                                        }
+                                        return results[0].id;
+                                    };
+
+                                    // since attachments aren't part of the message, we need to manually track their index
+                                    int current_attachment_index = 0;
+
+                                    for (auto& source_option : source_options)
+                                    {
+                                        if (level == params.size())
+                                        {
+                                            // we're out of parameters, but they're optional now so it's fine
+                                            break;
+                                        }
+
+                                        auto chat_param = params[level];
+                                        auto chat_param_lowercase = chat_param;
+                                        bulbtils::string::inplace::to_lowercase(chat_param_lowercase);
+
+                                        dpp::command_data_option dest_option_data;
+                                        dest_option_data.focused = false;
+                                        dest_option_data.name = source_option.name;
+                                        dest_option_data.options = {};
+                                        dest_option_data.type = source_option.type;
+
+                                        std::string type_name;
+                                        switch (dest_option_data.type)
+                                        {
+                                            case dpp::co_string: type_name = "string"; break;
+                                            case dpp::co_integer: type_name = "integer"; break;
+                                            case dpp::co_boolean: type_name = "boolean"; break;
+                                            case dpp::co_user: type_name = "user"; break;
+                                            case dpp::co_channel: type_name = "channel"; break;
+                                            case dpp::co_role: type_name = "role"; break;
+                                            case dpp::co_mentionable: type_name = "mentionable"; break;
+                                            case dpp::co_number: type_name = "number"; break;
+                                            case dpp::co_attachment: type_name = "attachment"; break;
+                                        }
+
+                                        auto parse_error_msg = std::format("Failed to parse {} parameter `#{}` ({})", 
+                                            type_name, dest_option_data.type == dpp::co_attachment ? (current_attachment_index + 1) : level, dest_option_data.name);
+
+                                        if (source_option.type == dpp::co_string)
+                                        {
+                                            dest_option_data.value = chat_param;
+                                        }
+                                        else if (source_option.type == dpp::co_integer)
+                                        {
+                                            try
+                                            {
+                                                dest_option_data.value = std::stoll(chat_param);
+                                            }
+                                            catch (std::invalid_argument& e)
+                                            {
+                                                // people can just escape the backtick and ping everyone, todo fixme EVERYWHERE
+                                                throw std::invalid_argument(std::format("{} - \"{}\" is not a valid int64 number.", 
+                                                    parse_error_msg, dpp::utility::markdown_escape(chat_param, true)));
+                                            }
+                                            catch (std::out_of_range& e)
+                                            {
+                                                throw std::invalid_argument(std::format("{} - \"{}\" is outside the int64 range (-2^63 to 2^63-1).", parse_error_msg, chat_param));
+                                            }
+                                        }
+                                        else if (source_option.type == dpp::co_boolean)
+                                        {
+                                            static std::vector<std::string> true_values { "true", "yes", "1" };
+                                            static std::vector<std::string> false_values { "false", "no", "0" };
+
+                                            if (std::find(true_values.begin(), true_values.end(), chat_param_lowercase) != true_values.end())
+                                            {
+                                                dest_option_data.value = true;
+                                            }
+                                            else if (std::find(false_values.begin(), false_values.end(), chat_param_lowercase) != false_values.end())
+                                            {
+                                                dest_option_data.value = false;
+                                            }
+                                            else
+                                            {
+                                                auto values_str = [](const std::vector<std::string>& values)
+                                                {
+                                                    std::string str;
+                                                    for (int i = 0; i < values.size(); i++)
+                                                    {
+                                                        if (i > 0)
+                                                        {
+                                                            str += "/";
+                                                        }
+                                                        str += "`" + values[i] + "`";
+                                                    }
+                                                    return str;
+                                                };
+                                                static std::string true_values_str = values_str(true_values);
+                                                static std::string false_values_str = values_str(false_values);
+
+                                                throw std::invalid_argument(std::format("{} - \"{}\" is not valid, you must pass either {} or {}.", 
+                                                    parse_error_msg, dpp::utility::markdown_escape(chat_param, true), true_values_str, false_values_str));
+                                            }
+                                        }
+                                        else if (source_option.type == dpp::co_user)
+                                        {
+                                            try
+                                            {
+                                                dest_option_data.value = parse_find_results(find_users(chat_param));
+                                            }
+                                            catch (std::invalid_argument& e)
+                                            {
+                                                throw std::invalid_argument(std::format("{} - {}", parse_error_msg, e.what()));
+                                            }
+                                        }
+                                        else if (source_option.type == dpp::co_channel)
+                                        {
+                                            try
+                                            {
+                                                dest_option_data.value = parse_find_results(find_channels(chat_param));
+                                            }
+                                            catch (std::invalid_argument& e)
+                                            {
+                                                throw std::invalid_argument(std::format("{} - {}", parse_error_msg, e.what()));
+                                            }
+                                        }
+                                        else if (source_option.type == dpp::co_role)
+                                        {
+                                            try
+                                            {
+                                                dest_option_data.value = parse_find_results(find_roles(chat_param));
+                                            }
+                                            catch (std::invalid_argument& e)
+                                            {
+                                                throw std::invalid_argument(std::format("{} - {}", parse_error_msg, e.what()));
+                                            }
+                                        }
+                                        else if (source_option.type == dpp::co_mentionable)
+                                        {
+                                            try
+                                            {
+                                                auto user_results = find_users(chat_param);
+                                                auto role_results = find_roles(chat_param);
+
+                                                find_results results;
+                                                results.reserve(user_results.size() + role_results.size());
+                                                results.insert(user_results.end(), user_results.begin(), user_results.end());
+                                                results.insert(role_results.end(), role_results.begin(), role_results.end());
+
+                                                dest_option_data.value = parse_find_results(results);
+                                            }
+                                            catch (std::invalid_argument& e)
+                                            {
+                                                throw std::invalid_argument(std::format("{} - {}", parse_error_msg, e.what()));
+                                            }
+                                        }
+                                        else if (source_option.type == dpp::co_number)
+                                        {
+                                            try
+                                            {
+                                                dest_option_data.value = std::stod(chat_param);
+                                            }
+                                            catch (std::invalid_argument& e)
+                                            {
+                                                throw std::invalid_argument(std::format("{} - \"{}\" is not a valid (double-precision floating-point) number.", 
+                                                    parse_error_msg, dpp::utility::markdown_escape(chat_param, true)));
+                                            }
+                                            catch (std::out_of_range& e)
+                                            {
+                                                throw std::invalid_argument(std::format("{} - \"{}\" is outside the double-precision floating-point range.", parse_error_msg, chat_param));
+                                            }
+                                        }
+                                        else if (source_option.type == dpp::co_attachment)
+                                        {
+                                            auto& attachments = event.msg.attachments;
+
+                                            if (attachments.size() == current_attachment_index)
+                                            {
+                                                throw std::invalid_argument(std::format("{} - not enough files attached to message (missing attachment `#{}`).", parse_error_msg, current_attachment_index + 1));
+                                            }
+
+                                            dest_option_data.value = attachments[current_attachment_index++].id;
+
+                                            // since attachments aren't part of the message, do not increment level
+                                            level--;
+                                        }
+
+                                        dest_options.push_back(dest_option_data);
+                                        level++;
+                                    }
+                                };
+
+                                auto iterate_subcommands = [&params, &iterate_command_params](
+                                    const std::vector<dpp::command_option>& source_options,
+                                    std::vector<dpp::command_data_option>& dest_options,
+                                    int level)
+                                {
+                                    for (auto& source_option : source_options)
+                                    {
+                                        if (params[level] == source_option.name)
+                                        {
+                                            auto& dest_option_data = dest_options.emplace_back();
+                                            dest_option_data.focused = false;
+                                            dest_option_data.name = source_option.name;
+                                            dest_option_data.options = {};
+                                            dest_option_data.type = dpp::co_sub_command;
+                                            dest_option_data.value = {};
+
+                                            iterate_command_params(source_option.options, dest_option_data.options, level + 1);
+                                            break;
+                                        }
+                                    }
+                                    throw std::invalid_argument(std::format("This command doesn't have a subcommand named \"{}\".", dpp::utility::markdown_escape(params[level], true)));
+                                };
+
+                                std::string error = "";
+
+                                // at this point all of these are true:
+                                // - command options are NOT empty (there is at least 1 or more)
+                                // - first command option is required
+                                // - first command option is NOT a string
+                                try
+                                {
+                                    auto& level_1_options = command.options;
+
+                                    // if the first option is a subcommand group, all the others are too
+                                    // all of its options are subcommands, and, in turn, all subcommand options are parameters
+                                    if (level_1_options[0].type == dpp::co_sub_command_group)
+                                    {
+                                        if (params.size() < 3)
+                                        {
+                                            throw std::invalid_argument("This command expects at least 2 parameters, but only 1 was passed.");
+                                        }
+
+                                        for (auto& level_1_option : level_1_options)
+                                        {
+                                            if (params[1] == level_1_option.name)
+                                            {
+                                                auto& level_1_data = cmd_interaction.options.emplace_back();
+                                                level_1_data.focused = false;
+                                                level_1_data.name = level_1_option.name;
+                                                level_1_data.options = {};
+                                                level_1_data.type = dpp::co_sub_command_group;
+                                                level_1_data.value = {};
+
+                                                iterate_subcommands(level_1_option.options, level_1_data.options, 2);
+                                                break;
+                                            }
+                                        }
+                                        throw std::invalid_argument(std::format("This command doesn't have a subcommand group named \"{}\".", dpp::utility::markdown_escape(params[1], true)));
+                                    }
+                                    // if the first option is a subcommand, all the others are too
+                                    // in turn, all subcommand options are parameters
+                                    else if (level_1_options[0].type == dpp::co_sub_command)
+                                    {
+                                        //if (params.size() < 2)
+                                        //{
+                                        //    // unreachable
+                                        //    throw std::invalid_argument("This command expects at least 1 parameter, but none were passed.");
+                                        //}
+                                        iterate_subcommands(level_1_options, cmd_interaction.options, 1);
+                                    }
+                                    else
+                                    {
+                                        iterate_command_params(level_1_options, cmd_interaction.options, 1);
+                                    }
+                                }
+                                catch (std::invalid_argument& e)
+                                {
+                                    error = std::format(":x: **| Invalid argument error:** {}", e.what());
+                                }
+                                catch (std::exception& e)
+                                {
+                                    error = std::format(":x: **| Error:** {}", e.what());
+                                }
+
+                                if (!error.empty())
+                                {
+                                    event.reply(error);
+                                    co_return;
+                                }
+
+                                co_await command.run(run_event(discofloor::message_command_t(event, cmd_interaction)));
+                                co_return;
+                            }
+
+                            // the user didn't type out our command, so we're not running anything
                         }
                         else if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
                         {
@@ -441,7 +1018,7 @@ namespace discofloor
                         {
                             // can't use false here, or it will never compile (as always, thanks raymond chen :3)
                             // https://devblogs.microsoft.com/oldnewthing/20200311-00/?p=103553
-                            static_assert(!sizeof(T*), "Unsupported type T");
+                            static_assert(!sizeof(T*), "Unsupported run_event type for event_router_async");
                         }
                     };
 

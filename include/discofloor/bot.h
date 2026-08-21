@@ -13,6 +13,9 @@
 
 namespace discofloor
 {
+	// Get a user's username, appending the discrim for bots (for humans it does not)
+	std::string get_username(const dpp::user& user);
+
 	class bot;
 
     // Settings stored and used inside each discofloor bot
@@ -102,7 +105,13 @@ namespace discofloor
         // Get the underlying event dispatch for any run_event variant
         const dpp::event_dispatch_t& event_dispatch() const;
 
+		// Get the user who ran the command
         dpp::user get_command_invoker() const;
+
+		dpp::guild* get_guild() const;
+
+		// Get the details of the executed command
+		dpp::command_interaction command_interaction() const;
 
 		// Reply to the command invoker
         void reply(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
@@ -119,30 +128,26 @@ namespace discofloor
         void thinking_end(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
         inline void thinking_end(const std::string& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const { thinking_end(dpp::message(msg), callback); }
 
-        // For old-style commands, reply to the user that they should instead use the slash command
-		//
-        // For "CHAT_INPUT" commands, reply to the user that they should instead use the old-style command
-        // (if old-style commands are disabled, the user simply gets a "not implemented" reply instead)
-		//
-        // This function is not supported for "MESSAGE" and "USER" commands.
-        void reply_not_impl_use_other() const;
+		dpp::command_value get_cmd_param(const std::string& param_name) const;
 
-        // Given a command parameter name, try to fetch the command parameter value
-        // Returns the value if found, or default_value otherwise
-        template <typename T>
-        T try_get_command_parameter(const std::string& param_name, T default_value) const
-        {
-            if (auto message_command = get_message_command())
-            {
-                // todo - manual_options_
-                return default_value;
-            }
-            else if (auto param = get_interaction_create()->get_parameter(param_name); auto value = std::get_if<T>(&param))
-            {
-                return *value;
-            }
-            return default_value;
-        }
+		// Given the name of a required parameter of a command, fetch its value
+		template <typename T>
+		T get_cmd_required_param_value(const std::string& param_name) const
+		{
+			return std::get<T>(get_cmd_param(param_name));
+		}
+
+		// Given the name of an optional parameter of a command, try to fetch its value
+		// Returns the value if found, or default_value otherwise
+		template <typename T>
+		T get_cmd_optional_param_value(const std::string& param_name, T default_value) const
+		{
+			if (auto param = get_cmd_param(param_name); auto value = std::get_if<T>(&param))
+			{
+				return *value;
+			}
+			return default_value;
+		}
     };
 
 	// Type of function used by discofloor commands to receive run events
