@@ -1032,7 +1032,10 @@ namespace discofloor
                 {
                     for (auto& command : loaded_module->commands(*this))
                     {
-                        for_each_command_(command);
+                        if (for_each_command_)
+                        {
+                            for_each_command_(command);
+                        }
                         module_commands_.emplace_back(command, this);
                         commands.push_back(command);
                     }
