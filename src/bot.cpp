@@ -498,10 +498,13 @@ namespace discofloor
                                 return cmd_interaction;
                             };
 
+                            bool command_has_no_required_params = command.options.empty() || 
+                                (!command.options[0].required && command.options[0].type != dpp::co_sub_command_group && command.options[0].type != dpp::co_sub_command);
+
                             auto chat_command = std::format("{}{}", prefix, command.name);
                             if (event.msg.content == chat_command)
                             {
-                                if (command.options.empty() || !command.options[0].required)
+                                if (command_has_no_required_params)
                                 {
                                     // command has no (required) params, we just run as-is
                                     co_await command.run(run_event(discofloor::message_command_t(event, default_cmd_interaction())));
@@ -509,7 +512,7 @@ namespace discofloor
                                 }
 
                                 // user ran the command without params but this command has at least one required param - print usage help
-                                // todo
+                                event.reply("usage - todo");
                                 co_return;
                             }
 
@@ -517,7 +520,7 @@ namespace discofloor
                             // ...since discord doesn't allow trailing whitespace at the end of messages
                             if (event.msg.content.starts_with(chat_command + " "))
                             {
-                                if (command.options.empty() || !command.options[0].required)
+                                if (command_has_no_required_params)
                                 {
                                     // command has no (required) params, we just run as-is
                                     co_await command.run(run_event(discofloor::message_command_t(event, default_cmd_interaction())));
@@ -928,7 +931,7 @@ namespace discofloor
                                             dest_option_data.value = {};
 
                                             iterate_command_params(source_option.options, dest_option_data.options, level + 1);
-                                            break;
+                                            return;
                                         }
                                     }
                                     throw std::invalid_argument(std::format("This command doesn't have a subcommand named \"{}\".", dpp::utility::markdown_escape(params[level], true)));
@@ -965,7 +968,7 @@ namespace discofloor
                                                 level_1_data.value = {};
 
                                                 iterate_subcommands(level_1_option.options, level_1_data.options, 2);
-                                                break;
+                                                goto found_subcmd_group;
                                             }
                                         }
                                         throw std::invalid_argument(std::format("This command doesn't have a subcommand group named \"{}\".", dpp::utility::markdown_escape(params[1], true)));
@@ -985,6 +988,10 @@ namespace discofloor
                                     {
                                         iterate_command_params(level_1_options, cmd_interaction.options, 1);
                                     }
+
+                                found_subcmd_group:
+                                    // a label appearing at the end of a compound statement requires at least '/std:c++23preview'
+                                    void(0);
                                 }
                                 catch (std::invalid_argument& e)
                                 {
