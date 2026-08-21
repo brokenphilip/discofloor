@@ -106,9 +106,13 @@ namespace discofloor
         const dpp::event_dispatch_t& event_dispatch() const;
 
 		// Get the user who ran the command
-        dpp::user get_command_invoker() const;
+        dpp::user command_invoker() const;
 
+		// Get the guild the command was run in, if any
 		dpp::guild* get_guild() const;
+
+		// Get the channel the command was run in, if any
+		dpp::channel* get_channel() const;
 
 		// Get the details of the executed command
 		dpp::command_interaction command_interaction() const;
@@ -175,7 +179,7 @@ namespace discofloor
     // 
     // When a module ("static" or "dynamic") is being instantiated, it gets added to the internal linked list of modules
 	// This linked list is iterated for each discofloor bot as described in the virtual functions below
-	// Since "dynamic" modules are also added to the linked list, be careful
+	// Since "dynamic" modules are also added to the linked list, be careful when instantiating them
     struct module : public bulbtils::named_node<module>
     {
         inline module(const char* name) : named_node<module>(name) {}

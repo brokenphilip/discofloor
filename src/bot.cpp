@@ -164,7 +164,7 @@ namespace discofloor
         *this);
     }
 
-    dpp::user run_event::get_command_invoker() const
+    dpp::user run_event::command_invoker() const
     {
         return std::visit([](auto&& event)
         {
@@ -198,6 +198,23 @@ namespace discofloor
         *this);
     }
 
+    dpp::channel* run_event::get_channel() const
+    {
+        return std::visit([](auto&& event)
+        {
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                return dpp::find_channel(event.command.channel_id);
+            }
+            else
+            {
+                return dpp::find_channel(event.msg.channel_id);
+            }
+        },
+        *this);
+    }
+
     dpp::command_interaction run_event::command_interaction() const
     {
         return std::visit([](auto&& event)
@@ -217,7 +234,7 @@ namespace discofloor
 
     void run_event::reply(const dpp::message& msg, dpp::command_completion_event_t callback) const
     {
-        std::visit([&msg, &callback](auto&& event)
+        std::visit([this, &msg, &callback](auto&& event)
         {
             using T = std::decay_t<decltype(event)>;
             if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
@@ -226,7 +243,21 @@ namespace discofloor
             }
             else
             {
-                event.reply(msg, false, callback);
+                if (msg.is_ephemeral())
+                {
+                    get_bot()->message_add_reaction(event.msg, "📨");
+                    get_bot()->direct_message_create(event.msg.author.id, msg, [event](const dpp::confirmation_callback_t& callback)
+                    {
+                        if (callback.is_error())
+                        {
+                            event.reply("*I wasn't able to message you the response - please ensure I can DM you, or run the slash command instead.*");
+                        }
+                    });
+                }
+                else
+                {
+                    event.reply(msg, false, callback);
+                }
             }
         },
         *this);
@@ -234,9 +265,26 @@ namespace discofloor
 
     dpp::async<dpp::confirmation_callback_t> run_event::co_reply(const dpp::message& msg) const
     {
-        return std::visit([&msg](auto&& event)
+        return std::visit([this, &msg](auto&& event)
         {
-            return event.co_reply(msg);
+            using T = std::decay_t<decltype(event)>;
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            {
+                return event.co_reply(msg);
+            }
+            else
+            {
+                if (msg.is_ephemeral())
+                {
+                    // error handling not possible here
+                    get_bot()->message_add_reaction(event.msg, "📨");
+                    return get_bot()->co_direct_message_create(event.msg.author.id, msg);
+                }
+                else
+                {
+                    return event.co_reply(msg);
+                }
+            }
         },
         *this);
     }
@@ -1217,6 +1265,10 @@ namespace discofloor
         if (settings_.prefix.empty())
         {
             log(dpp::ll_info, "Old-style commands disabled (prefix is blank)");
+        }
+        else if (!(intents & dpp::i_message_content))
+        {
+            log(dpp::ll_info, "Old-style commands disabled ('Message Content' intent not provided)");
         }
         else
         {
