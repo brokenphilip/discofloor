@@ -17,6 +17,27 @@ namespace discofloor
         return username;
     }
 
+    dpp::message container_msg(const std::string& message, uint32_t accent)
+    {
+        dpp::component content;
+        content.set_type(dpp::cot_text_display);
+        content.set_content(message);
+
+        dpp::component container;
+        container.set_type(dpp::cot_container);
+        container.add_component_v2(content);
+        if (accent != UINT_MAX)
+        {
+            container.set_accent(accent);
+        }
+
+        dpp::message msg;
+        msg.set_flags(dpp::m_using_components_v2);
+        msg.add_component_v2(container);
+
+        return msg;
+    }
+
     nlohmann::json bot_settings::struct_to_json(const bulbtils::file::settings& save_settings) const
     {
         return
@@ -250,7 +271,7 @@ namespace discofloor
                     {
                         if (callback.is_error())
                         {
-                            event.reply("*I wasn't able to message you the response - please ensure I can DM you, or run the slash command instead.*");
+                            event.reply(container_msg("I wasn't able to message you the response - please ensure I can DM you, or run the slash command instead.", 0xFF0000));
                         }
                     });
                 }
@@ -1196,7 +1217,7 @@ namespace discofloor
         }
         catch (malformed_command& e)
         {
-            event.reply(std::format("***Malformed command:*** *{}*", e.what()));
+            event.reply(container_msg(std::format("**Malformed command:** {}", e.what()), 0xFF0000));
             co_return;
         }
         catch (blank_command& e)
@@ -1206,7 +1227,7 @@ namespace discofloor
         }
         catch (std::exception& e)
         {
-            event.reply("***Error:*** *{}*", e.what());
+            event.reply(container_msg(std::format("**Error:** {}", e.what()), 0xFF0000));
             co_return;
         }
         co_await run(run_event(discofloor::message_command_t(event, cmd_interaction)));

@@ -16,6 +16,8 @@ namespace discofloor
 	// Get a user's username, appending the discrim for bots (for humans it does not)
 	std::string get_username(const dpp::user& user);
 
+	dpp::message error_message(const std::string& message, uint32_t accent = UINT_MAX);
+
 	class bot;
 
     // Settings stored and used inside each discofloor bot
