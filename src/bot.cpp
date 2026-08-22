@@ -355,6 +355,61 @@ namespace discofloor
         *this);
     }
 
+    dpp::message bot::module_command::usage(const std::string& subcmd_group, const std::string& subcmd)
+    {
+        auto usage_options = [cmd_id = id, cmd_name = name, prefix = owner->settings().prefix]
+            (const std::vector<dpp::command_option>& options, const std::string& subcmd_group_and_or_subcmd)
+        {
+            auto mention = dpp::utility::slashcommand_mention(cmd_id, cmd_name, subcmd_group_and_or_subcmd);
+
+
+
+
+            std::string type_name;
+            switch (data_option.type)
+            {
+            case dpp::co_integer: type_name = "integer"; break;
+            case dpp::co_boolean: type_name = "boolean"; break;
+            case dpp::co_user: type_name = "user"; break;
+            case dpp::co_channel: type_name = "channel"; break;
+            case dpp::co_role: type_name = "role"; break;
+            case dpp::co_mentionable: type_name = "mentionable"; break;
+            case dpp::co_number: type_name = "number"; break;
+            case dpp::co_attachment: type_name = "attachment"; break;
+            }
+        };
+
+        if (options[0].type == dpp::co_sub_command_group)
+        {
+            // if the specific subcommand is passed, get the subcommand's usage
+            if (!subcmd.empty())
+            {
+                return;
+            }
+
+            // if it isn't, but the subcommand group is passed, list all available subcommands for this group
+            if (!subcmd_group.empty())
+            {
+                return;
+            }
+
+            // otherwise list all available subcommand groups
+            return;
+        }
+
+        if (options[0].type == dpp::co_sub_command)
+        {
+            // if the specific subcommand is passed, get the subcommand's usage
+            if (!subcmd.empty())
+            {
+                return;
+            }
+
+            // otherwise list all available subcommands
+            return;
+        }
+    }
+
     dpp::task<void> bot::module_command::message_create_event(const dpp::message_create_t& event)
     {
         auto prefix = owner->settings().prefix;
@@ -397,7 +452,7 @@ namespace discofloor
 
             // if this command has at least one required parameter, obviously we can't run it on its own
             // in this special case, instead of erroring, we print command usage help to the user, to teach them how to run the command
-            event.reply("usage - todo");
+            event.reply(usage());
             co_return;
         }
 
@@ -430,6 +485,22 @@ namespace discofloor
             co_return;
         }
 
+        // This error is thrown for malformed commands - prints the error message
+        struct malformed_command : public std::runtime_error
+        {
+            using runtime_error::runtime_error;
+        };
+
+        // This error is thrown for blank commands - prints usage help
+        struct blank_command : public std::runtime_error
+        {
+            std::string subcmd_group;
+            std::string subcmd;
+
+            blank_command(const std::string& error, const std::string& subcmd_group = "", const std::string& subcmd = "")
+                : runtime_error(error), subcmd_group(subcmd_group), subcmd(subcmd) {}
+        };
+
         // the first parameter will always be the command itself, since CHAT_INPUT commands can't have spaces
         // message/user context menu commands can, however, have spaces, but we don't care about those here
         auto params = bulbtils::string::split_parameters(event.msg.content);
@@ -447,17 +518,23 @@ namespace discofloor
             }
 
             // all required parameters always precede all optional parameters
-            auto first_optional_param = std::find_if(source_options.begin(), source_options.end(), [](const dpp::command_option& option)
+            // when we've found the first optional parameter, all parameters up until that point are mandatory
+            auto required_param_count = std::find_if(source_options.begin(), source_options.end(), [](const dpp::command_option& option)
             {
                 return option.required == false;
             });
 
-            // when we've found the first optional parameter, all parameters up until that point are mandatory
-            int required_levels = level + std::distance(source_options.begin(), first_optional_param);
+            int required_levels = level + std::distance(source_options.begin(), required_param_count);
             if (params.size() < required_levels)
             {
-                throw std::invalid_argument(std::format("This (sub)command expects at least {} parameter{}, but only {} {} passed.",
-                    (required_levels - 1), (required_levels - 1) == 1 ? "" : "s", (params.size() - 1), (params.size() - 1) == 1 ? "was" : "were"));
+                auto error = std::format("This (sub)command expects at least {} parameter{}, but only {} {} passed.",
+                    (required_levels - 1), (required_levels - 1) == 1 ? "" : "s", (params.size() - 1), (params.size() - 1) == 1 ? "was" : "were");
+
+                if (params.size() == level)
+                {
+                    throw blank_command(error);
+                }
+                throw malformed_command(error);
             }
 
             // the result of an ID-able (user, role, channel) in a dpp::find_*() call
@@ -621,7 +698,7 @@ namespace discofloor
                 std::string blablabla = "matches found for the given input (try narrowing your search, providing an ID, or running the command in a guild (that i'm in) if you aren't already)";
                 if (results.empty())
                 {
-                    throw std::invalid_argument("no " + blablabla + ".");
+                    throw malformed_command("no " + blablabla + ".");
                 }
                 if (results.size() > 1)
                 {
@@ -631,7 +708,7 @@ namespace discofloor
                         auto& find_result = results[i];
                         matches += std::format("\n{}. \"{}\" ({}) - `{}`", i + 1, dpp::utility::markdown_escape(find_result.value, true), find_result.type, std::to_string(find_result.id));
                     }
-                    throw std::invalid_argument("multiple " + blablabla + ":" + matches);
+                    throw malformed_command("multiple " + blablabla + ":" + matches);
                 }
                 return results[0].id;
             };
@@ -694,12 +771,12 @@ namespace discofloor
                     }
                     catch (std::invalid_argument& e)
                     {
-                        throw std::invalid_argument(std::format("{} - \"{}\" is not a valid int64 number.",
+                        throw malformed_command(std::format("{} - \"{}\" is not a valid int64 number.",
                             parse_error_msg(dest_option_data, level), dpp::utility::markdown_escape(chat_param, true)));
                     }
                     catch (std::out_of_range& e)
                     {
-                        throw std::invalid_argument(std::format("{} - \"{}\" is outside the int64 range (-2^63 to 2^63-1).", parse_error_msg(dest_option_data, level), chat_param));
+                        throw malformed_command(std::format("{} - \"{}\" is outside the int64 range (-2^63 to 2^63-1).", parse_error_msg(dest_option_data, level), chat_param));
                     }
                 }
                 else if (source_option.type == dpp::co_boolean)
@@ -735,7 +812,7 @@ namespace discofloor
                         static std::string true_values_str = values_str(true_values);
                         static std::string false_values_str = values_str(false_values);
 
-                        throw std::invalid_argument(std::format("{} - \"{}\" is not valid, you must pass either {} or {}.",
+                        throw malformed_command(std::format("{} - \"{}\" is not valid, you must pass either {} or {}.",
                             parse_error_msg(dest_option_data, level), dpp::utility::markdown_escape(chat_param, true), true_values_str, false_values_str));
                     }
                 }
@@ -745,9 +822,9 @@ namespace discofloor
                     {
                         dest_option_data.value = parse_find_results(find_users(chat_param));
                     }
-                    catch (std::invalid_argument& e)
+                    catch (malformed_command& e)
                     {
-                        throw std::invalid_argument(std::format("{} - {}", parse_error_msg(dest_option_data, level), e.what()));
+                        throw malformed_command(std::format("{} - {}", parse_error_msg(dest_option_data, level), e.what()));
                     }
                 }
                 else if (source_option.type == dpp::co_channel)
@@ -756,9 +833,9 @@ namespace discofloor
                     {
                         dest_option_data.value = parse_find_results(find_channels(chat_param));
                     }
-                    catch (std::invalid_argument& e)
+                    catch (malformed_command& e)
                     {
-                        throw std::invalid_argument(std::format("{} - {}", parse_error_msg(dest_option_data, level), e.what()));
+                        throw malformed_command(std::format("{} - {}", parse_error_msg(dest_option_data, level), e.what()));
                     }
                 }
                 else if (source_option.type == dpp::co_role)
@@ -767,9 +844,9 @@ namespace discofloor
                     {
                         dest_option_data.value = parse_find_results(find_roles(chat_param));
                     }
-                    catch (std::invalid_argument& e)
+                    catch (malformed_command& e)
                     {
-                        throw std::invalid_argument(std::format("{} - {}", parse_error_msg(dest_option_data, level), e.what()));
+                        throw malformed_command(std::format("{} - {}", parse_error_msg(dest_option_data, level), e.what()));
                     }
                 }
                 else if (source_option.type == dpp::co_mentionable)
@@ -787,9 +864,9 @@ namespace discofloor
 
                         dest_option_data.value = parse_find_results(results);
                     }
-                    catch (std::invalid_argument& e)
+                    catch (malformed_command& e)
                     {
-                        throw std::invalid_argument(std::format("{} - {}", parse_error_msg(dest_option_data, level), e.what()));
+                        throw malformed_command(std::format("{} - {}", parse_error_msg(dest_option_data, level), e.what()));
                     }
                 }
                 else if (source_option.type == dpp::co_number)
@@ -800,12 +877,12 @@ namespace discofloor
                     }
                     catch (std::invalid_argument& e)
                     {
-                        throw std::invalid_argument(std::format("{} - \"{}\" is not a valid (double-precision floating-point) number.",
+                        throw malformed_command(std::format("{} - \"{}\" is not a valid (double-precision floating-point) number.",
                             parse_error_msg(dest_option_data, level), dpp::utility::markdown_escape(chat_param, true)));
                     }
                     catch (std::out_of_range& e)
                     {
-                        throw std::invalid_argument(std::format("{} - \"{}\" is outside the double-precision floating-point range.", parse_error_msg(dest_option_data, level), chat_param));
+                        throw malformed_command(std::format("{} - \"{}\" is outside the double-precision floating-point range.", parse_error_msg(dest_option_data, level), chat_param));
                     }
                 }
                 else if (source_option.type == dpp::co_attachment)
@@ -814,7 +891,7 @@ namespace discofloor
 
                     if (attachments.size() == current_attachment_index)
                     {
-                        throw std::invalid_argument(std::format("{} - missing attachment (not enough files attached to message).",
+                        throw malformed_command(std::format("{} - missing attachment (not enough files attached to message).",
                             parse_error_msg(dest_option_data, current_attachment_index + 1), current_attachment_index + 1));
                     }
 
@@ -852,15 +929,23 @@ namespace discofloor
                     dest_option_data.value = {};
 
                     // all options of a subcommand are parameters
-                    iterate_command_params(source_option.options, dest_option_data.options, level + 1);
+                    try 
+                    {
+                        iterate_command_params(source_option.options, dest_option_data.options, level + 1);
+                    }
+                    catch (blank_command& e)
+                    {
+                        e.subcmd = source_option.name;
+                        throw e;
+                    }
                     return;
                 }
             }
-            throw std::invalid_argument(std::format("This command doesn't have a subcommand named \"{}\".", dpp::utility::markdown_escape(params[level], true)));
+            throw malformed_command(std::format("This command doesn't have a subcommand named \"{}\".", dpp::utility::markdown_escape(params[level], true)));
         };
 
         // get error message separately since we can't co-await inside a catch block
-        std::string error = "";
+        std::string error;
 
         // at this point all of these are true:
         // - command options are NOT empty (there is at least 1 or more)
@@ -872,12 +957,6 @@ namespace discofloor
             // all of its options are subcommands, and, in turn, all subcommand options are parameters
             if (options[0].type == dpp::co_sub_command_group)
             {
-                // a subcommand group must have at least one subcommand, so we check for this straight away
-                if (params.size() < 3)
-                {
-                    throw std::invalid_argument("This command expects at least 2 parameters, but only 1 was passed.");
-                }
-
                 for (auto& option : options)
                 {
                     auto name_lowercase = params[1];
@@ -885,6 +964,12 @@ namespace discofloor
 
                     if (name_lowercase == option.name)
                     {
+                        // a subcommand group must have at least one subcommand
+                        if (params.size() < 3)
+                        {
+                            throw blank_command("This command expects at least 2 parameters, but only 1 was passed.", option.name);
+                        }
+
                         auto& option_data = cmd_interaction.options.emplace_back();
                         option_data.focused = false;
                         option_data.name = option.name;
@@ -893,11 +978,19 @@ namespace discofloor
                         option_data.value = {};
 
                         // all options of a subcommand group are subcommands
-                        iterate_subcommands(option.options, option_data.options, 2);
+                        try
+                        {
+                            iterate_subcommands(option.options, option_data.options, 2);
+                        }
+                        catch (blank_command& e)
+                        {
+                            e.subcmd_group = option.name;
+                            throw e;
+                        }
                         goto found_subcmd_group;
                     }
                 }
-                throw std::invalid_argument(std::format("This command doesn't have a subcommand group named \"{}\".", dpp::utility::markdown_escape(params[1], true)));
+                throw malformed_command(std::format("This command doesn't have a subcommand group named \"{}\".", dpp::utility::markdown_escape(params[1], true)));
             }
             else if (options[0].type == dpp::co_sub_command)
             {
@@ -912,67 +1005,57 @@ namespace discofloor
             // a label appearing at the end of a compound statement requires at least '/std:c++23preview'
             void(0);
         }
-        catch (std::invalid_argument& e)
+        catch (malformed_command& e)
         {
-            error = std::format(":x: **| Invalid argument error:** {}", e.what());
+            event.reply(std::format("***Malformed command:*** *{}*", e.what()));
+        }
+        catch (blank_command& e)
+        {
+            event.reply(usage(e.subcmd_group, e.subcmd));
         }
         catch (std::exception& e)
         {
-            error = std::format(":x: **| Error:** {}", e.what());
-        }
-        if (!error.empty())
-        {
-            event.reply(error);
-            co_return;
+            event.reply("***Error:*** *{}*", e.what());
         }
         co_await run(run_event(discofloor::message_command_t(event, cmd_interaction)));
     }
 
     void bot::module_command::attach_events()
     {
-        auto event_router_async = [this](const auto& event) -> dpp::task<void>
+        auto slashcmd_event_router = [this](const auto& event) -> dpp::task<void>
         {
             using T = std::decay_t<decltype(event)>;
-
-            // this isn't a mistake - it's still a dpp::message_create_t at this point
-            // ...but we will turn it into a discofloor::message_command_t later down the road
-            if constexpr (std::is_same_v<T, dpp::message_create_t>)
-            {
-                co_await message_create_event(event);
-                co_return;
-            }
-            else if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
+            if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
             {
                 // for slash commands it's simple - just check their name
                 if (event.command.get_command_name() == name)
                 {
                     co_await run(run_event(event));
-                    co_return;
                 }
             }
             else
             {
                 // can't use false here, or it will never compile (as always, thanks raymond chen :3)
                 // https://devblogs.microsoft.com/oldnewthing/20200311-00/?p=103553
-                static_assert(!sizeof(T*), "Unsupported run_event type for event_router_async");
+                static_assert(!sizeof(T*), "Unsupported run_event type for slashcmd_event_router");
             }
         };
 
         if (type == dpp::ctxm_chat_input)
         {
-            event_handles[0] = owner->on_slashcommand.attach(event_router_async);
+            event_handles[0] = owner->on_slashcommand.attach(slashcmd_event_router);
             if ((owner->intents & dpp::i_message_content) != 0)
             {
-                event_handles[1] = owner->on_message_create.attach(event_router_async);
+                event_handles[1] = owner->on_message_create.attach([this](const dpp::message_create_t& e) -> dpp::task<void> { co_await message_create_event(e); });
             }
         }
         else if (type == dpp::ctxm_message)
         {
-            event_handles[0] = owner->on_message_context_menu.attach(event_router_async);
+            event_handles[0] = owner->on_message_context_menu.attach(slashcmd_event_router);
         }
         else if (type == dpp::ctxm_user)
         {
-            event_handles[0] = owner->on_user_context_menu.attach(event_router_async);
+            event_handles[0] = owner->on_user_context_menu.attach(slashcmd_event_router);
         }
     }
 
@@ -983,7 +1066,7 @@ namespace discofloor
             owner->on_slashcommand.detach(event_handles[0]);
             if ((owner->intents & dpp::i_message_content) != 0)
             {
-                owner->on_message_create.detach(event_handles[1]);
+                detach_message_content_events();
             }
         }
         else if (type == dpp::ctxm_message)
@@ -993,6 +1076,14 @@ namespace discofloor
         else if (type == dpp::ctxm_user)
         {
             owner->on_user_context_menu.detach(event_handles[0]);
+        }
+    }
+
+    void bot::module_command::detach_message_content_events()
+    {
+        if (type == dpp::ctxm_chat_input)
+        {
+            owner->on_message_create.detach(event_handles[1]);
         }
     }
 
@@ -1165,10 +1256,7 @@ namespace discofloor
                 std::shared_lock _(cluster->module_commands_mutex_);
                 for (auto& command : cluster->module_commands_)
                 {
-                    if (command.type == dpp::ctxm_chat_input)
-                    {
-                        cluster->on_message_create.detach(command.event_handles[1]);
-                    }
+                    command.detach_message_content_events();
                 }
             }
 

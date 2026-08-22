@@ -262,15 +262,18 @@ namespace discofloor
 		struct module_command : public command
 		{
 			bot* owner;
-			dpp::event_handle event_handles[2] { SIZE_MAX };
+			dpp::event_handle event_handles[3] { SIZE_MAX };
 			
 			inline module_command(const command& cmd, bot* owner)
 				: command(cmd), owner(owner) {}
+
+			dpp::message usage(const std::string& subcmd_group = "", const std::string& subcmd = "");
 
 			event_t<dpp::message_create_t> message_create_event;
 
 			void attach_events();
 			void detach_events();
+			void detach_message_content_events();
 		};
 		std::vector<module_command> module_commands_;
 		std::shared_mutex module_commands_mutex_;
@@ -325,6 +328,9 @@ namespace discofloor
 
 		// Returns the unix timestamp when the bot was created
 		inline auto start_time_unix() { return std::chrono::duration_cast<std::chrono::seconds>(start_time_.time_since_epoch()).count(); }
+
+		// Are old-style (chat prefix) commands enabled on this bot?
+		inline bool old_style_commands_enabled() { return ((intents & dpp::i_message_content) != 0) && !settings_.prefix.empty(); }
 
 		// Returns a copy of the list of loaded modules
 		// Should you decide to modify a loaded module, you are responsible for its thread safety
