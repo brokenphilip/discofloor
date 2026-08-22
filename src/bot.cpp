@@ -405,26 +405,128 @@ namespace discofloor
 
     dpp::message bot::module_command::usage(const std::string& subcmd_group, const std::string& subcmd)
     {
-        auto usage_options = [cmd_id = id, cmd_name = name, prefix = owner->settings().prefix]
-            (const std::vector<dpp::command_option>& options, const std::string& subcmd_group_and_or_subcmd)
+        auto prefix = owner->old_style_commands_enabled() ? owner->settings().prefix : "/";
+
+        auto usage_options = [cmd_id = id, cmd_name = name, cmd_examples = chat_command_examples(), prefix]
+            (const std::vector<dpp::command_option>& options, const std::string& subcmd_group_and_or_subcmd, const std::string& cmd_desc)
         {
             auto mention = dpp::utility::slashcommand_mention(cmd_id, cmd_name, subcmd_group_and_or_subcmd);
 
-
-
-
-            std::string type_name;
-            switch (data_option.type)
+            std::string usage_cmd = prefix + cmd_name;
+            if (!subcmd_group_and_or_subcmd.empty())
             {
-            case dpp::co_integer: type_name = "integer"; break;
-            case dpp::co_boolean: type_name = "boolean"; break;
-            case dpp::co_user: type_name = "user"; break;
-            case dpp::co_channel: type_name = "channel"; break;
-            case dpp::co_role: type_name = "role"; break;
-            case dpp::co_mentionable: type_name = "mentionable"; break;
-            case dpp::co_number: type_name = "number"; break;
-            case dpp::co_attachment: type_name = "attachment"; break;
+                usage_cmd += " " + subcmd_group_and_or_subcmd;
             }
+
+            std::string usage_params = "";
+            for (auto& option : options)
+            {
+                std::vector<std::string> cmd_brackets { "<", ">" };
+                if (!option.required)
+                {
+                    cmd_brackets = { "[", "]" };
+                }
+                usage_cmd += " " + cmd_brackets[0] + option.name + cmd_brackets[1];
+
+                std::string type_name;
+                switch (option.type)
+                {
+                    case dpp::co_string: type_name = "string"; break;
+                    case dpp::co_integer: type_name = "integer"; break;
+                    case dpp::co_boolean: type_name = "boolean"; break;
+                    case dpp::co_user: type_name = "user"; break;
+                    case dpp::co_channel: type_name = "channel"; break;
+                    case dpp::co_role: type_name = "role"; break;
+                    case dpp::co_mentionable: type_name = "mentionable"; break;
+                    case dpp::co_number: type_name = "number"; break;
+                    case dpp::co_attachment: type_name = "attachment"; break;
+                }
+                usage_params += std::format("\n- **`{}` ({})** - {}", option.name, type_name, option.description);
+            }
+
+            std::string usage_examples = "";
+            for (auto& example : cmd_examples)
+            {
+                if (example.starts_with(subcmd_group_and_or_subcmd))
+                {
+                    usage_examples += std::format("\n- `{}{} {}`", prefix, cmd_name, example);
+                }
+            }
+
+            auto content_str = std::format(
+                "## {}\n"
+                "{}\n"
+                "### Usage: `{}`{}\n"
+                "{}",
+                mention,
+                cmd_desc,
+                usage_cmd, usage_params,
+                usage_examples.empty() ? "" : "### Examples:" + usage_examples
+            );
+
+            dpp::component content;
+            content.set_type(dpp::cot_text_display);
+            content.set_content(content_str);
+
+            dpp::component separator;
+            separator.set_type(dpp::cot_separator);
+            separator.set_spacing(dpp::sep_small);
+            separator.set_divider(false);
+
+            dpp::component legend;
+            legend.set_type(dpp::cot_text_display);
+            legend.set_content("-# **Legend:** <required parameter>, [optional parameter]");
+
+            dpp::component container;
+            container.set_type(dpp::cot_container);
+            container.add_component_v2(content);
+            container.add_component_v2(separator);
+            container.add_component_v2(legend);
+
+            dpp::message msg;
+            msg.set_flags(dpp::m_using_components_v2);
+            msg.add_component_v2(container);
+
+            return msg;
+        };
+
+        auto usage_subcmds = [cmd_id = id, cmd_name = name, prefix](const std::vector<dpp::command_option>& options, const std::string& subcmd_group)
+        {
+            auto content_str = std::format("**The \"{}{}\" {} has {} subcommand{}:**",
+                cmd_name,
+                subcmd_group.empty() ? "" : " " + subcmd_group,
+                subcmd_group.empty() ? "command" : "subcommand group",
+                options.size(),
+                options.size() == 1 ? "" : "s"
+            );
+
+            for (int i = 0; i < options.size(); i++)
+            {
+                auto& option = options[i];
+
+                content_str += std::format(
+                    "\n### {}\\. `{}{} {}{}`"
+                    "\n - {}"
+                    "\n - {}",
+                    i+1, prefix, cmd_name, subcmd_group.empty() ? "" : subcmd_group + " ", option.name,
+                    option.description,
+                    dpp::utility::slashcommand_mention(cmd_id, cmd_name, std::format("{}{}", subcmd_group.empty() ? "" : subcmd_group + " ", option.name))
+                );
+            }
+
+            dpp::component content;
+            content.set_type(dpp::cot_text_display);
+            content.set_content(content_str);
+
+            dpp::component container;
+            container.set_type(dpp::cot_container);
+            container.add_component_v2(content);
+
+            dpp::message msg;
+            msg.set_flags(dpp::m_using_components_v2);
+            msg.add_component_v2(container);
+
+            return msg;
         };
 
         if (options[0].type == dpp::co_sub_command_group)
@@ -432,17 +534,54 @@ namespace discofloor
             // if the specific subcommand is passed, get the subcommand's usage
             if (!subcmd.empty())
             {
-                return;
+                auto subcmd_group_it = std::find_if(options.begin(), options.end(), [&subcmd_group](const dpp::command_option& option)
+                {
+                    return option.name == subcmd_group;
+                });
+                auto subcmd_it = std::find_if(subcmd_group_it->options.begin(), subcmd_group_it->options.end(), [&subcmd](const dpp::command_option& option)
+                {
+                    return option.name == subcmd;
+                });
+                return usage_options(subcmd_it->options, subcmd_group_it->name + " " + subcmd_it->name, subcmd_it->description);
             }
 
             // if it isn't, but the subcommand group is passed, list all available subcommands for this group
             if (!subcmd_group.empty())
             {
-                return;
+                auto subcmd_group_it = std::find_if(options.begin(), options.end(), [&subcmd_group](const dpp::command_option& option)
+                {
+                    return option.name == subcmd_group;
+                });
+
+                return usage_subcmds(subcmd_group_it->options, subcmd_group_it->name);
             }
 
             // otherwise list all available subcommand groups
-            return;
+            auto content_str = std::format("**The \"{}\" command has {} subcommand group{}:**",
+                name,
+                options.size(),
+                options.size() == 1 ? "" : "s"
+            );
+
+            for (int i = 0; i < options.size(); i++)
+            {
+                auto& option = options[i];
+                content_str += std::format("\n### {}\\. `{}{} {}`", i + 1, prefix, name, option.name);
+            }
+
+            dpp::component content;
+            content.set_type(dpp::cot_text_display);
+            content.set_content(content_str);
+
+            dpp::component container;
+            container.set_type(dpp::cot_container);
+            container.add_component_v2(content);
+
+            dpp::message msg;
+            msg.set_flags(dpp::m_using_components_v2);
+            msg.add_component_v2(container);
+
+            return msg;
         }
 
         if (options[0].type == dpp::co_sub_command)
@@ -450,30 +589,32 @@ namespace discofloor
             // if the specific subcommand is passed, get the subcommand's usage
             if (!subcmd.empty())
             {
-                return;
+                auto subcmd_it = std::find_if(options.begin(), options.end(), [&subcmd](const dpp::command_option& option)
+                {
+                    return option.name == subcmd;
+                });
+                return usage_options(subcmd_it->options, subcmd_it->name, subcmd_it->description);
             }
-
             // otherwise list all available subcommands
-            return;
+            return usage_subcmds(options, name);
         }
+        return usage_options(options, "", description);
     }
 
     dpp::task<void> bot::module_command::message_create_event(const dpp::message_create_t& event)
     {
-        auto prefix = owner->settings().prefix;
-
-        auto prefix_len = prefix.length();
-        if (!prefix_len)
+        if (!owner->old_style_commands_enabled())
         {
-            // old-style commands are disabled
             co_return;
         }
-
         if (event.msg.author.is_bot())
         {
             // bots can't run commands
             co_return;
         }
+
+        auto prefix = owner->settings().prefix;
+        auto prefix_len = prefix.size();
 
         dpp::command_interaction cmd_interaction
         {
@@ -1056,14 +1197,17 @@ namespace discofloor
         catch (malformed_command& e)
         {
             event.reply(std::format("***Malformed command:*** *{}*", e.what()));
+            co_return;
         }
         catch (blank_command& e)
         {
             event.reply(usage(e.subcmd_group, e.subcmd));
+            co_return;
         }
         catch (std::exception& e)
         {
             event.reply("***Error:*** *{}*", e.what());
+            co_return;
         }
         co_await run(run_event(discofloor::message_command_t(event, cmd_interaction)));
     }
@@ -1230,6 +1374,7 @@ namespace discofloor
                     {
                         return command.name == other.name && command.type == other.type;
                     });
+                    module_command->id = snowflake;
                     module_command->attach_events();
                 }
             }
@@ -1354,7 +1499,7 @@ namespace discofloor
         {
             log(dpp::ll_info, "Old-style commands disabled (prefix is blank)");
         }
-        else if (!(intents & dpp::i_message_content))
+        else if ((intents & dpp::i_message_content) == 0)
         {
             log(dpp::ll_info, "Old-style commands disabled ('Message Content' intent not provided)");
         }
