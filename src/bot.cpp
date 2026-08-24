@@ -1595,6 +1595,40 @@ namespace discofloor
         }
     }
 
+    void bot::full_shutdown()
+    {
+        // HACK: ideally we'd use a unique_lock for the cluster's shards_mutex, but it is inaccessible (private)
+        const auto& shards = get_shards();
+
+        // also kind of a hack? set our token to something bogus so the bot (and its shards) can't reconnect
+        // we can't use an empty string here because of on_log causing a memory flood trying to find/hide the token
+        token = ":3";
+
+        for (auto& shard : shards)
+        {
+            auto client = shard.second;
+            if (client)
+            {
+                // make sure we knock our bot offline
+                client->send_close_packet();
+                client->token = ":3";
+            }
+        }
+
+        while (true)
+        {
+            // give the shards time to die (checking every second should be good enough)
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (std::all_of(shards.begin(), shards.end(), [](const auto& it) { return !it.second->is_connected(); }))
+            {
+                break;
+            }
+        }
+
+        // now let the bot gracefully shut down
+        shutdown();
+    }
+
     bulbtils::file::settings& bot::append_loggers(bulbtils::file::settings& file_settings)
     {
         file_settings.warning_callback = [&cluster = *this](const std::string& msg) { cluster.log(dpp::ll_warning, msg); };

@@ -323,6 +323,12 @@ namespace discofloor
 
 		virtual ~bot();
 
+		// Perform a full shutdown of a discofloor bot, terminating all websocket connections (making them unrecoverable)
+		// Kind of hacky, not particularly clean (with messy logs), but it's the only way to get it to show offline
+		void full_shutdown();
+
+		// Supply a callback function that gets run for each command that a module sends to the bot
+		// Use this function to conveniently modify all commands for a discofloor bot
 		inline void for_each_command(std::function<void(command&)> callback) { for_each_command_ = std::move(callback); }
 
 		// Append the bot's own logging functions to a file settings structure
