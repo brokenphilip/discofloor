@@ -119,12 +119,15 @@ namespace discofloor
 		// Get the details of the executed command
 		dpp::command_interaction command_interaction() const;
 
-		// Reply to the command invoker
+		// Reply to the command invoker (todo - fixup ephemeral messages)
         void reply(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
         inline void reply(const std::string& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const { reply(dpp::message(msg), callback); }
 
         dpp::async<dpp::confirmation_callback_t> co_reply(const dpp::message& msg) const;
         inline dpp::async<dpp::confirmation_callback_t> co_reply(const std::string& msg) const { return co_reply(dpp::message(msg)); }
+
+		// idk how to conveniently implement this yet, todo
+		//void edit_original_response(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
 
         // Remember to use thinking_end() instead of reply() after using thinking_start()
         // Additionally, if using the coroutine, make sure to co_await before ending the think

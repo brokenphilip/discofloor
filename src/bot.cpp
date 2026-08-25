@@ -346,16 +346,16 @@ namespace discofloor
 
     void run_event::thinking_end(const dpp::message& msg, dpp::command_completion_event_t callback) const
     {
-        return std::visit([&msg, &callback](auto&& event)
+        std::visit([&msg, &callback](auto&& event)
         {
             using T = std::decay_t<decltype(event)>;
             if constexpr (std::is_base_of_v<dpp::interaction_create_t, T>)
             {
-                return event.edit_original_response(msg, callback);
+                event.edit_original_response(msg, callback);
             }
             else
             {
-                return event.reply(msg, false, callback);
+                event.reply(msg, false, callback);
             }
         },
         *this);
@@ -367,7 +367,6 @@ namespace discofloor
         {
             using T = std::decay_t<decltype(event)>;
 
-            // can't use is_base_of_v here because of a bug pertaining to get_parameter incorrectly being classified as inaccessible
             if constexpr (std::is_same_v<dpp::slashcommand_t, T>)
             {
                 return event.get_parameter(param_name);
