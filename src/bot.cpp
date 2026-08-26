@@ -1587,7 +1587,7 @@ namespace discofloor
 
     bot::~bot()
     {
-        // destroy loaded modules in reverse order of initialization
+        // if modules aren't destroyed yet, do it now
         for (auto& loaded_module : std::views::reverse(loaded_modules_))
         {
             loaded_module->destroy(*this);
@@ -1596,6 +1596,13 @@ namespace discofloor
 
     void bot::full_shutdown()
     {
+        // destroy loaded modules in reverse order of initialization
+        for (auto& loaded_module : std::views::reverse(loaded_modules_))
+        {
+            loaded_module->destroy(*this);
+        }
+        loaded_modules_.clear();
+
         // HACK: ideally we'd use a unique_lock for the cluster's shards_mutex, but it is inaccessible (private)
         const auto& shards = get_shards();
 
