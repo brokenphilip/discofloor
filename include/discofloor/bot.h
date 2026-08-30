@@ -100,7 +100,7 @@ namespace discofloor
         const dpp::interaction_create_t* get_interaction_create() const;
 
         // Get the underlying event dispatch for any run_event variant
-        const dpp::event_dispatch_t& event_dispatch() const;
+        operator dpp::event_dispatch_t() const;
 
 		// Get the user who ran the command
         dpp::user command_invoker() const;
@@ -323,6 +323,7 @@ namespace discofloor
 
 		// Perform a full shutdown of a discofloor bot, terminating all websocket connections (making them unrecoverable)
 		// Kind of hacky, not particularly clean (with messy logs), but it's the only way to get it to show offline
+		// Not necessary to shut down the bot - you can also call shutdown() or delete the cluster/discofloor::bot instead
 		void full_shutdown();
 
 		// Supply a callback function that gets run for each command that a module sends to the bot

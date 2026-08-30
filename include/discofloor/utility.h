@@ -16,4 +16,7 @@ namespace discofloor
 
 	// Modified version of dpp::message.get_url()/dpp::utility::message_url() to support non-guild ((group) dm) messages
 	std::string message_url(const dpp::snowflake& guild_id, const dpp::snowflake& channel_id, const dpp::snowflake& message_id);
+
+	// Send a log message to the cluster/shard that's responding to the event
+	void log_event(const dpp::event_dispatch_t& event, dpp::loglevel severity, const std::string& message);
 }

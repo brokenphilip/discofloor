@@ -144,7 +144,7 @@ namespace discofloor
         *this);
     }
 
-    const dpp::event_dispatch_t& run_event::event_dispatch() const
+    run_event::operator dpp::event_dispatch_t() const
     {
         return std::visit([](auto& event_dispatch) -> const dpp::event_dispatch_t&
         {
@@ -1273,8 +1273,10 @@ namespace discofloor
         {
             auto cluster = static_cast<bot*>(event.owner);
             cluster->ready_init_done_ = true;
-            cluster->log(dpp::ll_info, std::format("Connected and logged in as: {} ({})", discofloor::get_username(cluster->me), std::to_string(cluster->me.id)));
             cluster->create_commands_async();
+
+            // we don't need log_event here, we don't care which cluster connects first
+            cluster->log(dpp::ll_info, std::format("Connected and logged in as: {} ({})", discofloor::get_username(cluster->me), std::to_string(cluster->me.id)));
         }
         co_return;
     }
@@ -1534,6 +1536,7 @@ namespace discofloor
 
             if (!iter->init(*this))
             {
+                // let users log failures instead
                 continue;
             }
 
@@ -1605,8 +1608,8 @@ namespace discofloor
 
     bulbtils::file::settings& bot::append_loggers(bulbtils::file::settings& file_settings)
     {
-        file_settings.warning_callback = [&cluster = *this](const std::string& msg) { cluster.log(dpp::ll_warning, msg); };
-        file_settings.error_callback = [&cluster = *this](const std::string& msg) { cluster.log(dpp::ll_error, msg); };
+        file_settings.warning_callback = [this](const std::string& msg) { log(dpp::ll_warning, msg); };
+        file_settings.error_callback = [this](const std::string& msg) { log(dpp::ll_error, msg); };
         return file_settings;
     }
 

@@ -43,4 +43,9 @@ namespace discofloor
         }
         return dpp::utility::message_url(guild_id, channel_id, message_id);
     }
+
+    void log_event(const dpp::event_dispatch_t& event, dpp::loglevel severity, const std::string& message)
+    {
+        event.owner->get_shard(event.shard)->log(severity, message);
+    }
 }
