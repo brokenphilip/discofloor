@@ -88,6 +88,7 @@ namespace discofloor
     {
         using run_event_base::run_event_base;
 
+		// Return the bot which owns this run event
         bot* get_bot() const;
 
         inline auto get_message_command() const { return std::get_if<discofloor::message_command_t>(this); }
@@ -106,15 +107,18 @@ namespace discofloor
         dpp::user command_invoker() const;
 
 		// Get the guild the command was run in, if any
+		// Returns null for user-app commands
 		dpp::guild* get_guild() const;
 
 		// Get the channel the command was run in, if any
+		// Returns null for user-app commands
 		dpp::channel* get_channel() const;
 
 		// Get the details of the executed command
 		dpp::command_interaction command_interaction() const;
 
-		// Reply to the command invoker (todo - fixup ephemeral messages)
+		// Reply to the command invoker
+		// For old-style (chat prefix) commands, ephemeral messages get DM'd instead
         void reply(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
         inline void reply(const std::string& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const { reply(dpp::message(msg), callback); }
 
@@ -329,6 +333,9 @@ namespace discofloor
 		// Supply a callback function that gets run for each command that a module sends to the bot
 		// Use this function to conveniently modify all commands for a discofloor bot
 		inline void for_each_command(std::function<void(command&)> callback) { for_each_command_ = std::move(callback); }
+
+		// Given the command name and type, get a copy of the command
+		std::optional<command> get_command(const std::string& name, dpp::slashcommand_contextmenu_type type);
 
 		// Append the bot's own logging functions to a file settings structure
 		// This, of course, overwrites any logging functions already set in the struct

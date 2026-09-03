@@ -910,6 +910,7 @@ namespace discofloor
             };
 
             // since attachments aren't part of the message, we need to manually track their index
+            // todo fixme - this probably doesn't handle attachments properly if they're the only type of command option
             int current_attachment_index = 0;
 
             for (auto& source_option : source_options)
@@ -1604,6 +1605,20 @@ namespace discofloor
 
         // now let the bot gracefully shut down
         shutdown();
+    }
+
+    std::optional<command> bot::get_command(const std::string& name, dpp::slashcommand_contextmenu_type type)
+    {
+        std::shared_lock _(module_commands_mutex_);
+
+        for (auto& module_command : module_commands_)
+        {
+            if (module_command.name == name && module_command.type == type)
+            {
+                return module_command;
+            }
+        }
+        return std::nullopt;
     }
 
     bulbtils::file::settings& bot::append_loggers(bulbtils::file::settings& file_settings)
