@@ -1,5 +1,4 @@
 #include <discofloor/bot.h>
-#include <discofloor/utility.h>
 
 #include <bulbtils/string.h>
 #include <bulbtils/time.h>
@@ -42,7 +41,7 @@ namespace discofloor
         {
             try
             {
-                max_data_size_id = static_cast<uintmax_t>(bulbtils::file::string_to_size(max_data_size_total_str));
+                max_data_size_total = static_cast<uintmax_t>(bulbtils::file::string_to_size(max_data_size_total_str));
             }
             catch (std::exception& e)
             {
@@ -234,12 +233,13 @@ namespace discofloor
             {
                 if (msg.is_ephemeral())
                 {
-                    get_bot()->message_add_reaction(event.msg, "📨");
-                    get_bot()->direct_message_create(event.msg.author.id, msg, [event](const dpp::confirmation_callback_t& callback)
+                    auto cluster = get_bot();
+                    cluster->message_add_reaction(event.msg, "📨");
+                    cluster->direct_message_create(event.msg.author.id, msg, [event, cluster](const dpp::confirmation_callback_t& callback)
                     {
                         if (callback.is_error())
                         {
-                            event.reply(container_msg("I wasn't able to message you the response - please ensure I can DM you, or run the slash command instead.", 0xFF0000));
+                            event.reply(cluster->format_error_reply("**Ephemeral message:** I wasn't able to message you the response - please ensure I can DM you, or run the slash command instead."));
                         }
                     });
                 }
@@ -1125,6 +1125,8 @@ namespace discofloor
         // get error message separately since we can't co-await inside a catch block
         std::string error;
 
+        auto cluster = static_cast<bot*>(event.owner);
+
         // at this point all of these are true:
         // - command options are NOT empty (there is at least 1 or more)
         // - first command option is required
@@ -1185,7 +1187,7 @@ namespace discofloor
         }
         catch (malformed_command& e)
         {
-            event.reply(container_msg(std::format("**Malformed command:** {}", e.what()), 0xFF0000));
+            event.reply(cluster->format_error_reply(std::format("**Malformed command:** {}", e.what())));
             co_return;
         }
         catch (blank_command& e)
@@ -1195,7 +1197,7 @@ namespace discofloor
         }
         catch (std::exception& e)
         {
-            event.reply(container_msg(std::format("**Error:** {}", e.what()), 0xFF0000));
+            event.reply(cluster->format_error_reply(std::format("**Error:** {}", e.what())));
             co_return;
         }
         co_await run(run_event(discofloor::message_command_t(event, cmd_interaction)));

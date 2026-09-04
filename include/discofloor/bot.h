@@ -1,5 +1,7 @@
 #pragma once
 
+#include <discofloor/utility.h>
+
 #include <discofloor/json.h>
 
 #include <bulbtils/named_node.h>
@@ -259,6 +261,9 @@ namespace discofloor
 	// - Additional info such as settings, instance owner, etc...
 	class bot : public dpp::cluster
 	{
+	public:
+		static inline const std::function<dpp::message(const std::string&)> default_reply_error_message = [](const std::string& error) { return container_msg(error, 0xFF0000); };
+	private:
 		template <typename T>
 		using event_t = dpp::task<void>(const T& event);
 
@@ -290,6 +295,7 @@ namespace discofloor
 		std::shared_mutex module_commands_mutex_;
 
 		std::function<void(command&)> for_each_command_;
+		std::function<dpp::message(const std::string&)> reply_error_message_ = default_reply_error_message;
 
 		dpp::user app_owner_;
 		std::shared_mutex app_owner_mutex_;
@@ -333,6 +339,14 @@ namespace discofloor
 		// Supply a callback function that gets run for each command that a module sends to the bot
 		// Use this function to conveniently modify all commands for a discofloor bot
 		inline void for_each_command(std::function<void(command&)> callback) { for_each_command_ = std::move(callback); }
+
+		// Supply a callback function that wraps error message strings into your own custom dpp::message
+		// Use this function to control how the bot prints internal error messages upon replying to users
+		inline void reply_error_message(std::function<dpp::message(const std::string&)> callback) { reply_error_message_ = std::move(callback); }
+
+		// Using the callback function for wrapping error message strings, return the resulting dpp::message
+		// By default, this uses "default_reply_error_message", ie. a "container_msg" with a red accent
+		inline dpp::message format_error_reply(const std::string& error) { return reply_error_message_(error); }
 
 		// Given the command name and type, get a copy of the command
 		std::optional<command> get_command(const std::string& name, dpp::slashcommand_contextmenu_type type);
