@@ -1454,7 +1454,7 @@ namespace discofloor
                 // HACK: ideally we'd use a unique_lock for the cluster's shards_mutex, but it is inaccessible (private)
                 for (auto& shard : cluster->get_shards())
                 {
-                    auto client = shard.second;
+                    auto& client = shard.second;
                     if (client)
                     {
                         client->intents &= ~intents_to_disable;
@@ -1584,7 +1584,7 @@ namespace discofloor
 
         for (auto& shard : shards)
         {
-            auto client = shard.second;
+            auto& client = shard.second;
             if (client)
             {
                 // make sure we knock our bot offline
