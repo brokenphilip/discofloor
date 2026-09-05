@@ -604,10 +604,10 @@ namespace discofloor
         auto prefix = owner->settings().prefix;
         auto prefix_len = prefix.size();
 
+        // we fill in the .name later, too early now
         dpp::command_interaction cmd_interaction
         {
             .id = id,
-            .name = event.msg.content.substr(prefix_len, event.msg.content.find(' ') - prefix_len),
             .options = {},
             .type = dpp::ctxm_chat_input,
             .target_id = dpp::snowflake(0),
@@ -623,6 +623,9 @@ namespace discofloor
             // the user typed out exactly our command with no parameters
             if (command_has_no_required_params)
             {
+                // the name of this command is the chat message without the prefix
+                cmd_interaction.name = event.msg.content.substr(prefix_len);
+
                 co_await run(run_event(discofloor::message_command_t(event, cmd_interaction)));
                 co_return;
             }
@@ -638,6 +641,9 @@ namespace discofloor
             // the user isn't running our command at all
             co_return;
         }
+
+        // the name of this command is the chat message without the prefix
+        cmd_interaction.name = event.msg.content.substr(prefix_len, event.msg.content.find(' ') - prefix_len);
 
         // from this point on, we know that the user typed out our command with parameters
         // (discord doesn't allow trailing whitespace in messages)
