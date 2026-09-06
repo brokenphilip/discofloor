@@ -91,4 +91,24 @@ namespace discofloor
 		// Returns dpp::confirmation as callback value unless errored
 		auto co_followup_edit(const dpp::snowflake& fu_msg_id, const dpp::message& new_msg) const;
 	};
+	/*
+	class timed_menu
+	{
+		uint64_t id_ = std::time(nullptr);
+
+		std::vector<std::string> pages_;
+		int active_page_ = 0;
+
+		std::optional<timed_interaction> interaction_ = std::nullopt;
+
+		dpp::message get_active_page(bool expired = false);
+
+		inline void on_timeout(const timed_interaction& response) { response.edit(get_active_page(true)); }
+	public:
+		timed_menu(const std::string& content, const std::string& primary_separator, const std::initializer_list<std::string>& secondary_separators = { "\n\n", "\n", " " });
+
+		dpp::message create(dpp::cluster* owner, const std::string& token);
+		dpp::message create(dpp::cluster* owner, const dpp::interaction& interaction);
+		dpp::message create(const dpp::interaction_create_t& interaction_create);
+	};*/
 }

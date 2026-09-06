@@ -108,5 +108,31 @@ namespace discofloor
 		auto msg = new_msg; msg.id = fu_msg_id; return owner_->co_interaction_followup_edit(token_, msg);
 	}
 
+	/*dpp::message timed_menu::get_active_page(bool expired)
+	{
+		return dpp::message();
+	}
+	
+	timed_menu::timed_menu(const std::string& content, const std::string& primary_separator, const std::initializer_list<std::string>& secondary_separators)
+	{
 
+	}
+
+	dpp::message timed_menu::create(dpp::cluster* owner, const std::string& token)
+	{
+		if (interaction_)
+		{
+			throw std::logic_error("")
+		}
+	}
+
+	dpp::message timed_menu::create(dpp::cluster* owner, const dpp::interaction& interaction)
+	{
+
+	}
+
+	dpp::message timed_menu::create(const dpp::interaction_create_t& interaction_create)
+	{
+
+	}*/
 }
