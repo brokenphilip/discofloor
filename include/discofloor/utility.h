@@ -19,4 +19,6 @@ namespace discofloor
 	// Send a log message to the cluster/shard that's responding to the event
 	// Preferrable over event.owner->log(...) because this retains cluster/shard info
 	void log_event(const dpp::event_dispatch_t& event, dpp::loglevel severity, const std::string& message);
+
+	std::string command_option_name(dpp::command_option_type co);
 }

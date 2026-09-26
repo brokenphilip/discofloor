@@ -48,4 +48,23 @@ namespace discofloor
     {
         event.owner->get_shard(event.shard)->log(severity, message);
     }
+
+    std::string command_option_name(dpp::command_option_type co)
+    {
+        switch (co)
+        {
+            case dpp::co_sub_command: return "subcommand";
+            case dpp::co_sub_command_group: return "subcommand group";
+            case dpp::co_string: return "string";
+            case dpp::co_integer: return "integer";
+            case dpp::co_boolean: return "boolean";
+            case dpp::co_user: return "user";
+            case dpp::co_channel: return "channel";
+            case dpp::co_role: return "role";
+            case dpp::co_mentionable: return "mentionable";
+            case dpp::co_number: return "number";
+            case dpp::co_attachment: return "attachment";
+        }
+        return "";
+    }
 }

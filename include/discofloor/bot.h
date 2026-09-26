@@ -1,23 +1,17 @@
 #pragma once
 
+#include <discofloor/bot_command.h>
+#include <discofloor/bot_module.h>
+#include <discofloor/json.h>
 #include <discofloor/utility.h>
 
-#include <discofloor/json.h>
-
-#include <bulbtils/named_node.h>
 #include <bulbtils/time.h>
-
-#include <dpp/dpp.h>
-
-#include <variant>
 
 #define DISCOFLOOR_DEFAULT_TOKEN "your_bot_token_here"
 
 namespace discofloor
 {
-	class bot;
-
-    // Settings stored and used inside each discofloor bot
+	// Settings stored and used inside each discofloor bot
 	// These settings can be loaded from and saved to a config file, see the config struct below
 	struct bot_settings
 	{
@@ -46,13 +40,13 @@ namespace discofloor
 	};
 
 	// Configuration file class used to load discofloor bot token and settings from a file
-    struct bot_config : public pretty_print_json_file
-    {
-        std::string token = DISCOFLOOR_DEFAULT_TOKEN;
-        bot_settings settings;
+	struct bot_config : public pretty_print_json_file
+	{
+		std::string token = DISCOFLOOR_DEFAULT_TOKEN;
+		bot_settings settings;
 
-        virtual nlohmann::json struct_to_json(const bulbtils::file::settings& save_settings) const override final;
-        virtual bool json_to_struct(const nlohmann::json& data, const bulbtils::file::settings& load_settings) override final;
+		virtual nlohmann::json struct_to_json(const bulbtils::file::settings& save_settings) const override final;
+		virtual bool json_to_struct(const nlohmann::json& data, const bulbtils::file::settings& load_settings) override final;
 
 		// Loads a discofloor bot config, performs value checks, and saves if necessary
 		// This is preferred over manual calls to load()/save() and manually checking values
@@ -64,166 +58,8 @@ namespace discofloor
 		// ...they will be used to print warnings/errors for checked values
 		//
 		// NOTE: Forces file_settings.create_if_not_found to true, for saving to work
-        bool load_check_save(const bulbtils::file::settings& file_settings);
-    };
-
-	// Message create event, modified to support commands, used in run_event
-	class message_command_t : public dpp::message_create_t
-	{
-		dpp::command_interaction data_;
-    public:
-		message_command_t(const dpp::message_create_t& message_create, const dpp::command_interaction& data)
-			: dpp::message_create_t(message_create), data_(data) {}
-
-		dpp::command_interaction command_interaction() const { return data_; }
+		bool load_check_save(const bulbtils::file::settings& file_settings);
 	};
-
-	// DO NOT USE! You most certainly want run_event instead
-	using run_event_base = std::variant<discofloor::message_command_t, dpp::slashcommand_t, dpp::message_context_menu_t, dpp::user_context_menu_t>;
-
-	// Event received when a discofloor command's run function is executed (see class below), supporting:
-	// - old-style (chat prefix) commands, unless disabled (blank prefix)
-    // - "CHAT_INPUT" ie. regular (chat) slash commands
-    // - "USER" ie. (right-click) user context menu commands
-    // - "MESSAGE" ie. (right-click) message context menu commands
-    struct run_event : public run_event_base
-    {
-        using run_event_base::run_event_base;
-
-		// Return the bot which owns this run event
-        bot* get_bot() const;
-
-        inline auto get_message_command() const { return std::get_if<discofloor::message_command_t>(this); }
-        inline auto get_slash_command() const { return std::get_if<dpp::slashcommand_t>(this); }
-        inline auto get_message_context_menu() const { return std::get_if<dpp::message_context_menu_t>(this); }
-        inline auto get_user_context_menu() const { return std::get_if<dpp::user_context_menu_t>(this); }
-
-        // For any type of slashcommand-based run_event, get the underlying interaction event
-		// Returns null if the run_event is not a slashcommand
-        const dpp::interaction_create_t* get_interaction_create() const;
-
-        // Get the underlying event dispatch for any run_event variant
-        operator dpp::event_dispatch_t() const;
-
-		// Get the user who ran the command
-        dpp::user command_invoker() const;
-
-		// Get the guild the command was run in, if any
-		// Returns null for user-app commands
-		dpp::guild* get_guild() const;
-
-		// Get the channel the command was run in, if any
-		// Returns null for user-app commands
-		dpp::channel* get_channel() const;
-
-		// Get the details of the executed command
-		dpp::command_interaction command_interaction() const;
-
-		// Reply to the command invoker
-		// For old-style (chat prefix) commands, ephemeral messages get DM'd instead
-        void reply(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
-        inline void reply(const std::string& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const { reply(dpp::message(msg), callback); }
-
-        dpp::async<dpp::confirmation_callback_t> co_reply(const dpp::message& msg) const;
-        inline dpp::async<dpp::confirmation_callback_t> co_reply(const std::string& msg) const { return co_reply(dpp::message(msg)); }
-
-		// idk how to conveniently implement this yet, todo
-		//void edit_original_response(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
-
-        // Remember to use thinking_end() instead of reply() after using thinking_start()
-        // Additionally, if using the coroutine, make sure to co_await before ending the think
-        void thinking_start() const;
-        dpp::async<dpp::confirmation_callback_t> co_thinking_start() const;
-
-        void thinking_end(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
-        inline void thinking_end(const std::string& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const { thinking_end(dpp::message(msg), callback); }
-
-		dpp::command_value get_cmd_param(const std::string& param_name) const;
-
-		// Given the name of a required parameter of a command, fetch its value
-		template <typename T>
-		T get_cmd_required_param_value(const std::string& param_name) const
-		{
-			return std::get<T>(get_cmd_param(param_name));
-		}
-
-		// Given the name of an optional parameter of a command, try to fetch its value
-		// Returns the value if found, or default_value otherwise
-		template <typename T>
-		T get_cmd_optional_param_value(const std::string& param_name, T default_value) const
-		{
-			if (auto param = get_cmd_param(param_name); auto value = std::get_if<T>(&param))
-			{
-				return *value;
-			}
-			return default_value;
-		}
-    };
-
-	// Type of function used by discofloor commands to receive run events
-	using run_fn = std::function<dpp::task<void>(const run_event&)>;
-
-	// Slash command wrapper with an accompanying run function that receives run events (see struct above)
-    class command : public dpp::slashcommand
-    {
-		std::vector<std::string> chat_command_examples_;
-        run_fn run_fn_;
-    public:
-		inline command(const std::string& name, const std::string& description, const dpp::snowflake application_id, run_fn run_fn, const std::vector<std::string>& chat_command_examples = {})
-            : dpp::slashcommand(name, description, application_id), run_fn_(run_fn), chat_command_examples_(chat_command_examples) {}
-
-        inline command(const std::string& name, const dpp::slashcommand_contextmenu_type type, const dpp::snowflake application_id, run_fn run_fn)
-            : dpp::slashcommand(name, type, application_id), run_fn_(run_fn) {}
-
-		inline std::vector<std::string> chat_command_examples() { return chat_command_examples_; }
-
-        inline auto get_run_fn() const { return run_fn_; }
-        inline dpp::task<void> run(const run_event& event) const { co_await run_fn_(event); }
-    };
-
-	// Base module interface - inherit this class to create your own custom module
-	//
-	// Modules are, by design, meant to be single-instance ("static"), but they don't necessarily have to be
-    // For dynamically allocated ("dynamic") modules, you can use bot::add_module() and bot::remove_module()
-    // 
-    // When a module ("static" or "dynamic") is being instantiated, it gets added to the internal linked list of modules
-	// This linked list is iterated for each discofloor bot as described in the virtual functions below
-	// Since "dynamic" modules are also added to the linked list, be careful when instantiating them
-    struct module : public bulbtils::named_node<module>
-    {
-        inline module(const char* name) : named_node<module>(name) {}
-        inline virtual ~module() {}
-
-		// This function is called when a discofloor bot is being constructed
-		// Alternatively, it is also called when the module is being late-loaded using bot::add_module()
-        // Modules are always initialized in alphabetical order, based on their name
-		//
-		// Return true to let the bot load your module, false otherwise (eg. if something goes wrong)
-		// If you're returning false, it is advised to use "bot.log(...)" to provide an explanation
-		//
-		// By default, this virtual function just returns true and doesn't do anything else
-		// If you don't need to run any initialization code, you don't need to override it
-		// 
-        // NOTE: Modules can additionally be disabled using the "disabled_modules" bot setting
-		// In that case, this function will NOT be called, and the module will NOT be initialized
-		//
-        // NOTE: Since this is called during the module internal linked list iteration,
-		// ...do NOT create new (dynamic) modules within this function
-        inline virtual bool init(bot& bot) { return true; }
-
-		// This function is called when a discofloor bot is requesting all loaded modules' commands
-        // This usually happens a short while after init() - during the bot's initial on_ready event
-        // For late-loaded commands using bot::add_module(), this function is called right after init()
-        inline virtual std::vector<command> commands(bot& bot) { return {}; }
-
-		// This function is called when a discofloor bot is being destructed
-        // Alternatively, it is also called when the module is being early-unloaded using bot::remove_module()
-        // Modules are always destroyed in reverse-alphabetical order, based on their name
-		//
-		// By default, this virtual function doesn't do anything
-        // If you don't need to run any destruction code, you don't need to override it
-        inline virtual void destroy(bot& bot) {}
-    };
 
 	// File-based (JSON) data structure for storing snowflake-specific discofloor bot data
 	// Inherit this class and use bot::load_data and bot::save_data to manipulate data
@@ -272,18 +108,44 @@ namespace discofloor
 		const bulbtils::time::raii_stopwatch running_time_;
 		const std::chrono::system_clock::time_point start_time_ = std::chrono::system_clock::now();
 
-		std::vector<module*> loaded_modules_;
+		std::vector<bot_module*> loaded_modules_;
 		std::shared_mutex loaded_modules_mutex_;
 
-		struct module_command : public command
+		struct module_command : public bot_command
 		{
 			bot* owner;
-			dpp::event_handle event_handles[3] { SIZE_MAX };
+			dpp::event_handle event_handles[2] { SIZE_MAX };
 			
-			inline module_command(const command& cmd, bot* owner)
-				: command(cmd), owner(owner) {}
+			inline module_command(const bot_command& cmd, bot* owner)
+				: bot_command(cmd), owner(owner) {}
 
-			dpp::message usage(const std::string& subcmd_group = "", const std::string& subcmd = "");
+			dpp::message usage_options(const std::string& prefix, const std::vector<dpp::command_option>& options, const std::string& subcmd_group_and_or_subcmd, const std::string& cmd_desc);
+			dpp::message usage_subcmds(const std::string& prefix, const std::vector<dpp::command_option>& options, const std::string& subcmd_group);
+			dpp::message usage_subcmd_groups(const std::string& prefix);
+			dpp::message usage(const std::string& prefix, const std::string& subcmd_group = "", const std::string& subcmd = "");
+
+			// This error is thrown for malformed commands - prints the error message
+			struct msg_create_malformed_cmd_error : public std::runtime_error
+			{
+				using runtime_error::runtime_error;
+			};
+
+			// This error is thrown for blank commands - prints usage help
+			struct msg_create_blank_cmd_error : public std::runtime_error
+			{
+				std::string subcmd_group;
+				std::string subcmd;
+
+				msg_create_blank_cmd_error(const std::string& error, const std::string& subcmd_group = "", const std::string& subcmd = "")
+					: runtime_error(error), subcmd_group(subcmd_group), subcmd(subcmd) {
+				}
+			};
+
+			static void iterate_msg_create_cmd_params(const dpp::message_create_t& event, const std::vector<std::string>& params,
+				const std::vector<dpp::command_option>& source_options, std::vector<dpp::command_data_option>& dest_options, int level);
+
+			static void iterate_msg_create_subcmds(const dpp::message_create_t& event, const std::vector<std::string>& params,
+				const std::vector<dpp::command_option>& source_options, std::vector<dpp::command_data_option>& dest_options, int level);
 
 			event_t<dpp::message_create_t> message_create_event;
 
@@ -294,7 +156,7 @@ namespace discofloor
 		std::vector<module_command> module_commands_;
 		std::shared_mutex module_commands_mutex_;
 
-		std::function<void(command&)> for_each_command_;
+		std::function<void(bot_command&)> for_each_command_;
 		std::function<dpp::message(const std::string&)> reply_error_message_ = default_reply_error_message;
 
 		dpp::user app_owner_;
@@ -338,7 +200,7 @@ namespace discofloor
 
 		// Supply a callback function that gets run for each command that a module sends to the bot
 		// Use this function to conveniently modify all commands for a discofloor bot
-		inline void for_each_command(std::function<void(command&)> callback) { for_each_command_ = std::move(callback); }
+		inline void for_each_command(std::function<void(bot_command&)> callback) { for_each_command_ = std::move(callback); }
 
 		// Supply a callback function that wraps error message strings into your own custom dpp::message
 		// Use this function to control how the bot prints internal error messages upon replying to users
@@ -349,7 +211,7 @@ namespace discofloor
 		inline dpp::message format_error_reply(const std::string& error) { return reply_error_message_(error); }
 
 		// Given the command name and type, get a copy of the command
-		std::optional<command> get_command(const std::string& name, dpp::slashcommand_contextmenu_type type);
+		std::optional<bot_command> get_command(const std::string& name, dpp::slashcommand_contextmenu_type type);
 
 		// Append the bot's own logging functions to a file settings structure
 		// This, of course, overwrites any logging functions already set in the struct
@@ -374,11 +236,11 @@ namespace discofloor
 		// Add (late-load) a module to the bot - returns true on success
 		// Returns false if called too early (must be after on_ready_init)
 		// Also returns false if the module failed to load or is disabled by config/settings file
-		bool add_module(module* module_to_add);
+		bool add_module(bot_module* module_to_add);
 
 		// Remove (early-unload) a module from the bot - returns true on success
 		// Returns false if this module is not loaded
-		bool remove_module(module* module_to_remove);
+		bool remove_module(bot_module* module_to_remove);
 
 		// Returns a copy of the dpp::user who owns this app/instance
 		inline auto app_owner() { std::shared_lock _(app_owner_mutex_); return app_owner_; }
