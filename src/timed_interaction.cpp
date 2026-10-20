@@ -402,8 +402,13 @@ namespace discofloor
 		actions.add_component_v2(button_next);
 		actions.add_component_v2(button_last);
 
-		for (const auto& component : contents_[index])
+		for (auto& component : contents_[index])
 		{
+			if (!buttons_enabled)
+			{
+				// won't work -- we need to check which types of components can be disabled
+				component.set_disabled(true);
+			}
 			container.add_component_v2(component);
 		}
 
