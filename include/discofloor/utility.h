@@ -20,5 +20,9 @@ namespace discofloor
 	// Preferrable over event.owner->log(...) because this retains cluster/shard info
 	void log_event(const dpp::event_dispatch_t& event, dpp::loglevel severity, const std::string& message);
 
+	// Given a command option type, return its name
 	std::string command_option_name(dpp::command_option_type co);
+
+	// Given a component, return its (estimated) character count, including its children
+	size_t get_component_size(const dpp::component& component);
 }

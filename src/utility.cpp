@@ -67,4 +67,14 @@ namespace discofloor
         }
         return "";
     }
+
+    size_t get_component_size(const dpp::component& component)
+    {
+        size_t size = component.type == dpp::cot_text_display ? component.content.size() : 0;
+        for (const auto& child : component.components)
+        {
+            size += get_component_size(child);
+        }
+        return size;
+    }
 }

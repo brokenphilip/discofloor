@@ -1,5 +1,7 @@
 #include <discofloor/timed_interaction.h>
 
+#include <discofloor/utility.h>
+
 namespace discofloor
 {
 	void timed_interaction::on_timeout(bool skip_callback)
@@ -334,10 +336,6 @@ namespace discofloor
 			container.add_component_v2(title_separator);
 		}
 
-		dpp::component main_content;
-		main_content.set_type(dpp::cot_text_display);
-		main_content.set_content(contents_[index]);
-
 		dpp::component main_separator;
 		main_separator.set_type(dpp::cot_separator);
 		main_separator.set_spacing(dpp::sep_small);
@@ -404,7 +402,11 @@ namespace discofloor
 		actions.add_component_v2(button_next);
 		actions.add_component_v2(button_last);
 
-		container.add_component_v2(main_content);
+		for (const auto& component : contents_[index])
+		{
+			container.add_component_v2(component);
+		}
+
 		container.add_component_v2(main_separator);
 		container.add_component_v2(footer_content);
 		container.add_component_v2(actions);
@@ -503,7 +505,20 @@ namespace discofloor
 		}
 	}
 
-	timed_book::timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user,
+	std::vector<std::vector<dpp::component>> timed_book::make_component_vectors_from_string_contents_vector(const std::vector<std::string> contents)
+	{
+		std::vector<std::vector<dpp::component>> new_contents;
+		for (const auto& content : contents)
+		{
+			auto& component_vector = new_contents.emplace_back();
+			auto& component = component_vector.emplace_back();
+			component.set_type(dpp::cot_text_display);
+			component.set_content(content);
+		}
+		return new_contents;
+	}
+
+	timed_book::timed_book(const std::string& title, const std::vector<std::vector<dpp::component>>& contents, timeout_method tm, dpp::snowflake user,
 		size_t initial_page, dpp::snowflake interaction_id, dpp::cluster* owner, const std::string& token,
 		dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message, bool is_guild_interaction, uint32_t lifespan_seconds)
 		: title_(title), contents_(contents), timeout_method_(tm), user_(user),
@@ -527,10 +542,14 @@ namespace discofloor
 		}
 		for (int i = 0; i < contents.size(); i++)
 		{
-			auto size = contents[i].size();
+			size_t size = 0;
+			for (auto& component : contents[i])
+			{
+				size += get_component_size(component);
+			}
 			if (size > 3'000)
 			{
-				throw std::invalid_argument(std::format("Content text (an entry of the contents vector) cannot be longer than 3000 characters - got a length of {} at index {}", size, i));
+				throw std::invalid_argument(std::format("Per-page component vector content size cannot be longer than 3000 characters - got a length of {} at index {}", size, i));
 			}
 		}
 

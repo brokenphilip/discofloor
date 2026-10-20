@@ -211,7 +211,7 @@ namespace discofloor
 		uint64_t id_;
 		
 		std::string title_;
-		std::vector<std::string> contents_;
+		std::vector<std::vector<dpp::component>> contents_;
 
 		timeout_method timeout_method_;
 
@@ -238,12 +238,29 @@ namespace discofloor
 		void form_submit_event(const dpp::form_submit_t& event);
 
 		void on_timeout();
+
+		std::vector<std::vector<dpp::component>> make_component_vectors_from_string_contents_vector(const std::vector<std::string> contents);
 	public:
 		static inline const std::string unit_separator = "\x1F";
 
-		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
+		timed_book(const std::string& title, const std::vector<std::vector<dpp::component>>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			dpp::snowflake interaction_id, dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message,
 			bool is_guild_interaction, uint32_t lifespan_seconds);
+
+		timed_book(const std::string& title, const std::vector<std::vector<dpp::component>>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
+			dpp::cluster* owner, const dpp::interaction& interaction, uint32_t lifespan_seconds)
+			: timed_book(title, contents, tm, user, initial_page, interaction.id, owner, interaction.token,
+				interaction.guild_id, interaction.channel_id, interaction.message_id, interaction.is_guild_interaction(), lifespan_seconds) {}
+
+		timed_book(const std::string& title, const std::vector<std::vector<dpp::component>>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
+			const dpp::interaction_create_t& interaction_create, uint32_t lifespan_seconds)
+			: timed_book(title, contents, tm, user, initial_page, interaction_create.owner, interaction_create.command, lifespan_seconds) {}
+
+		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
+			dpp::snowflake interaction_id, dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message,
+			bool is_guild_interaction, uint32_t lifespan_seconds)
+			: timed_book(title, make_component_vectors_from_string_contents_vector(contents), tm, user, initial_page, interaction_id, owner, token,
+				guild, channel, message, is_guild_interaction, lifespan_seconds) {}
 
 		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			dpp::cluster* owner, const dpp::interaction& interaction, uint32_t lifespan_seconds)
