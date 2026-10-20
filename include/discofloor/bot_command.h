@@ -13,7 +13,8 @@ namespace discofloor
 		std::vector<std::string> chat_command_examples_;
 		run_fn run_fn_;
 	public:
-		inline bot_command(const std::string& name, const std::string& description, const dpp::snowflake application_id, run_fn run_fn, const std::vector<std::string>& chat_command_examples = {})
+		inline bot_command(const std::string& name, const std::string& description, const dpp::snowflake application_id, run_fn run_fn,
+			const std::vector<std::string>& chat_command_examples = {})
 			: dpp::slashcommand(name, description, application_id), run_fn_(run_fn), chat_command_examples_(chat_command_examples) {}
 
 		inline bot_command(const std::string& name, const dpp::slashcommand_contextmenu_type type, const dpp::snowflake application_id, run_fn run_fn)

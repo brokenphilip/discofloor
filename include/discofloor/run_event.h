@@ -77,7 +77,8 @@ namespace discofloor
 		dpp::async<dpp::confirmation_callback_t> co_thinking_start() const;
 
 		void thinking_end(const dpp::message& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const;
-		inline void thinking_end(const std::string& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const { thinking_end(dpp::message(msg), callback); }
+		inline void thinking_end(const std::string& msg, dpp::command_completion_event_t callback = dpp::utility::log_error()) const
+			{ thinking_end(dpp::message(msg), callback); }
 
 		dpp::command_value get_cmd_param(const std::string& param_name) const;
 

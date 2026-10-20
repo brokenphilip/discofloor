@@ -118,7 +118,8 @@ namespace discofloor
         return true;
     }
 
-    dpp::message bot::module_command::usage_options(const std::string& prefix, const std::vector<dpp::command_option>& options, const std::string& subcmd_group_and_or_subcmd, const std::string& cmd_desc)
+    dpp::message bot::module_command::usage_options(const std::string& prefix,
+        const std::vector<dpp::command_option>& options, const std::string& subcmd_group_and_or_subcmd, const std::string& cmd_desc)
     {
         auto mention = dpp::utility::slashcommand_mention(id, name, subcmd_group_and_or_subcmd);
 
@@ -399,7 +400,8 @@ namespace discofloor
                 }
                 catch (std::out_of_range& e)
                 {
-                    throw msg_create_malformed_cmd_error(std::format("{} - \"{}\" is outside the int64 range (-2^63 to 2^63-1).", parse_error_msg(dest_option_data, level), chat_param));
+                    throw msg_create_malformed_cmd_error(
+                        std::format("{} - \"{}\" is outside the int64 range (-2^63 to 2^63-1).", parse_error_msg(dest_option_data, level), chat_param));
                 }
             }
             else if (source_option.type == dpp::co_boolean)
@@ -505,7 +507,8 @@ namespace discofloor
                 }
                 catch (std::out_of_range& e)
                 {
-                    throw msg_create_malformed_cmd_error(std::format("{} - \"{}\" is outside the double-precision floating-point range.", parse_error_msg(dest_option_data, level), chat_param));
+                    throw msg_create_malformed_cmd_error(
+                        std::format("{} - \"{}\" is outside the double-precision floating-point range.", parse_error_msg(dest_option_data, level), chat_param));
                 }
             }
             else if (source_option.type == dpp::co_attachment)
@@ -691,7 +694,8 @@ namespace discofloor
                         goto found_subcmd_group;
                     }
                 }
-                throw msg_create_malformed_cmd_error(std::format("This command doesn't have a subcommand group named \"{}\".", dpp::utility::markdown_escape(params[1], true)));
+                throw msg_create_malformed_cmd_error(
+                    std::format("This command doesn't have a subcommand group named \"{}\".", dpp::utility::markdown_escape(params[1], true)));
             }
             else if (options[0].type == dpp::co_sub_command)
             {
@@ -1208,7 +1212,8 @@ namespace discofloor
             // module itself did not want to be added
             return false;
         }
-        loaded_modules_.insert(std::lower_bound(loaded_modules_.begin(), loaded_modules_.end(), module_to_add, [](const bot_module* a, const bot_module* b) { return strcmp(a->name(), b->name()) < 0; }), module_to_add);
+        loaded_modules_.insert(std::lower_bound(loaded_modules_.begin(), loaded_modules_.end(), module_to_add,
+            [](const bot_module* a, const bot_module* b) { return strcmp(a->name(), b->name()) < 0; }), module_to_add);
         create_commands_async();
         return true;
     }

@@ -97,7 +97,8 @@ namespace discofloor
 		timed_interaction(dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message, bool is_guild_interaction, uint32_t lifespan_seconds, on_timeout_fn on_timeout);
 
 		timed_interaction(dpp::cluster* owner, const dpp::interaction& interaction, uint32_t lifespan_seconds, on_timeout_fn on_timeout)
-			: timed_interaction(owner, interaction.token, interaction.guild_id, interaction.channel_id, interaction.message_id, interaction.is_guild_interaction(), lifespan_seconds, on_timeout) {}
+			: timed_interaction(owner, interaction.token, interaction.guild_id, interaction.channel_id, interaction.message_id,
+				interaction.is_guild_interaction(), lifespan_seconds, on_timeout) {}
 
 		timed_interaction(const dpp::interaction_create_t& interaction_create, uint32_t lifespan_seconds, on_timeout_fn on_timeout)
 			: timed_interaction(interaction_create.owner, interaction_create.command, lifespan_seconds, on_timeout) {}
@@ -106,7 +107,8 @@ namespace discofloor
 
 		// Update a timed interaction with new interaction data, resetting the timer (and reviving the timed interaction if it timed out already)
 		// You may also optionally supply a new lifespan or timeout callback - blank these values out to use the already existing ones
-		void update(const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message, uint32_t lifespan_seconds = 0, on_timeout_fn on_timeout = {});
+		void update(const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message,
+			uint32_t lifespan_seconds = 0, on_timeout_fn on_timeout = {});
 
 		// Update a timed interaction with new interaction data (from an interaction), resetting the timer (and reviving the timed interaction if it timed out already)
 		// You may also optionally supply a new lifespan or timeout callback - blank these values out to use the already existing ones
@@ -240,11 +242,13 @@ namespace discofloor
 		static inline const std::string unit_separator = "\x1F";
 
 		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
-			dpp::snowflake interaction_id, dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message, bool is_guild_interaction, uint32_t lifespan_seconds);
+			dpp::snowflake interaction_id, dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message,
+			bool is_guild_interaction, uint32_t lifespan_seconds);
 
 		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			dpp::cluster* owner, const dpp::interaction& interaction, uint32_t lifespan_seconds)
-			: timed_book(title, contents, tm, user, initial_page, interaction.id, owner, interaction.token, interaction.guild_id, interaction.channel_id, interaction.message_id, interaction.is_guild_interaction(), lifespan_seconds) {}
+			: timed_book(title, contents, tm, user, initial_page, interaction.id, owner, interaction.token,
+				interaction.guild_id, interaction.channel_id, interaction.message_id, interaction.is_guild_interaction(), lifespan_seconds) {}
 
 		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			const dpp::interaction_create_t& interaction_create, uint32_t lifespan_seconds)
@@ -268,7 +272,7 @@ namespace discofloor
 		// 
 		// Note that if any of the resulting pages are under "min_length" characters long, they will NOT be joined together
 		// 
-		// If "main_separator" is not provided (ie. is empty), or the aforementioned exception #2 occurs, every time a split is about to be performed (near "max_length")...
+		// If "main_separator" is not provided (is empty), or the aforementioned exception #2 occurs, every time a split is about to be performed (near "max_length")...
 		// ...the function will search for the first "ideal" backup separator from the initializer list - or, in other words, it won't necessarily just use the same one
 		// 
 		// A backup separator is "ideal" when it can produce pages between "min_length" and "max_length" characters long

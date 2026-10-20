@@ -98,7 +98,8 @@ namespace discofloor
 	class bot : public dpp::cluster
 	{
 	public:
-		static inline const std::function<dpp::message(const std::string&)> default_reply_error_message = [](const std::string& error) { return container_msg(error, 0xFF0000); };
+		static inline const std::function<dpp::message(const std::string&)> default_reply_error_message =
+			[](const std::string& error) { return container_msg(error, 0xFF0000); };
 	private:
 		template <typename T>
 		using event_t = dpp::task<void>(const T& event);
@@ -119,7 +120,8 @@ namespace discofloor
 			inline module_command(const bot_command& cmd, bot* owner)
 				: bot_command(cmd), owner(owner) {}
 
-			dpp::message usage_options(const std::string& prefix, const std::vector<dpp::command_option>& options, const std::string& subcmd_group_and_or_subcmd, const std::string& cmd_desc);
+			dpp::message usage_options(const std::string& prefix, const std::vector<dpp::command_option>& options, const std::string& subcmd_group_and_or_subcmd,
+				const std::string& cmd_desc);
 			dpp::message usage_subcmds(const std::string& prefix, const std::vector<dpp::command_option>& options, const std::string& subcmd_group);
 			dpp::message usage_subcmd_groups(const std::string& prefix);
 			dpp::message usage(const std::string& prefix, const std::string& subcmd_group = "", const std::string& subcmd = "");

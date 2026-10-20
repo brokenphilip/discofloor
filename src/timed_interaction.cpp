@@ -37,8 +37,10 @@ namespace discofloor
 		lifespan_seconds_);
 	}
 
-	timed_interaction::timed_interaction(dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message, bool is_guild_interaction, uint32_t lifespan_seconds, on_timeout_fn on_timeout)
-		: owner_(owner), token_(token), on_timeout_(on_timeout), guild_(guild), channel_(channel), message_(message), guild_interaction_(is_guild_interaction), lifespan_seconds_(lifespan_seconds)
+	timed_interaction::timed_interaction(dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message,
+		bool is_guild_interaction, uint32_t lifespan_seconds, on_timeout_fn on_timeout)
+		: owner_(owner), token_(token), on_timeout_(on_timeout), guild_(guild), channel_(channel), message_(message),
+		guild_interaction_(is_guild_interaction), lifespan_seconds_(lifespan_seconds)
 	{
 		if (!owner)
 		{
@@ -60,7 +62,8 @@ namespace discofloor
 		on_timeout(false);
 	}
 
-	void timed_interaction::update(const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message, uint32_t lifespan_seconds, on_timeout_fn on_timeout)
+	void timed_interaction::update(const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message,
+		uint32_t lifespan_seconds, on_timeout_fn on_timeout)
 	{
 		{
 			std::unique_lock _(mutex_);
@@ -500,9 +503,11 @@ namespace discofloor
 		}
 	}
 
-	timed_book::timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page, dpp::snowflake interaction_id,
-		dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message, bool is_guild_interaction, uint32_t lifespan_seconds)
-		: title_(title), contents_(contents), timeout_method_(tm), user_(user), timed_interaction_(owner, token, guild, channel, message, is_guild_interaction, lifespan_seconds, [this](timed_interaction&) { on_timeout(); })
+	timed_book::timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user,
+		size_t initial_page, dpp::snowflake interaction_id, dpp::cluster* owner, const std::string& token,
+		dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message, bool is_guild_interaction, uint32_t lifespan_seconds)
+		: title_(title), contents_(contents), timeout_method_(tm), user_(user),
+		timed_interaction_(owner, token, guild, channel, message, is_guild_interaction, lifespan_seconds, [this](timed_interaction&) { on_timeout(); })
 	{
 		if (contents.empty())
 		{
@@ -538,7 +543,8 @@ namespace discofloor
 		owner->interaction_response_create(interaction_id, token, dpp::interaction_response(dpp::ir_channel_message_with_source, msg));
 	}
 
-	std::vector<std::string> timed_book::split_contents(const std::string& contents, const std::string& main_separator, const std::initializer_list<std::string>& backup_separators, size_t min_length, size_t max_length)
+	std::vector<std::string> timed_book::split_contents(const std::string& contents, const std::string& main_separator,
+		const std::initializer_list<std::string>& backup_separators, size_t min_length, size_t max_length)
 	{
 		/*
 		auto split_using_backup_separators = [&backup_separators](const std::string& contents)

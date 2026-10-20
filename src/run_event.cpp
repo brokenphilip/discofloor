@@ -125,7 +125,8 @@ namespace discofloor
                     {
                         if (callback.is_error())
                         {
-                            event.reply(cluster->format_error_reply("**Ephemeral message:** I wasn't able to message you the response - please ensure I can DM you, or run the slash command instead."));
+                            event.reply(cluster->format_error_reply(
+                                "**Ephemeral message:** I wasn't able to message you the response - please ensure I can DM you, or run the slash command instead."));
                         }
                     });
                 }
