@@ -404,10 +404,12 @@ namespace discofloor
 
 		for (auto& component : contents_[index])
 		{
-			if (!buttons_enabled)
+			if (component.type == dpp::cot_action_row && !buttons_enabled)
 			{
-				// won't work -- we need to check which types of components can be disabled
-				component.set_disabled(true);
+				for (auto& child : component.components)
+				{
+					child.set_disabled(true);
+				}
 			}
 			container.add_component_v2(component);
 		}
