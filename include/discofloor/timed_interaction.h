@@ -94,12 +94,18 @@ namespace discofloor
 		// Infinite lifespan - if passed, only applies to guild-installed bot interactions
 		static constexpr uint32_t infinite_lifespan = UINT_MAX;
 
+		// Construct a timed interaction using the standard lifespan (in seconds) and an on_timeout callback function
+		// This function accepts manually supplying interaction ID, owning cluster and token, as well as guild, channel and message IDs
 		timed_interaction(dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message, bool is_guild_interaction, uint32_t lifespan_seconds, on_timeout_fn on_timeout);
 
+		// Construct a timed interaction using the standard lifespan (in seconds) and an on_timeout callback function
+		// This function accepts the owning cluster as well as interaction object
 		timed_interaction(dpp::cluster* owner, const dpp::interaction& interaction, uint32_t lifespan_seconds, on_timeout_fn on_timeout)
 			: timed_interaction(owner, interaction.token, interaction.guild_id, interaction.channel_id, interaction.message_id,
 				interaction.is_guild_interaction(), lifespan_seconds, on_timeout) {}
 
+		// Construct a timed interaction using the standard lifespan (in seconds) and an on_timeout callback function
+		// This function accepts an interaction_create event
 		timed_interaction(const dpp::interaction_create_t& interaction_create, uint32_t lifespan_seconds, on_timeout_fn on_timeout)
 			: timed_interaction(interaction_create.owner, interaction_create.command, lifespan_seconds, on_timeout) {}
 
@@ -241,42 +247,70 @@ namespace discofloor
 
 		std::vector<std::vector<dpp::component>> make_component_vectors_from_string_contents_vector(const std::vector<std::string> contents);
 	public:
+		// Recommended main_separator for split_contents()
 		static inline const std::string unit_separator = "\x1F";
 
+		// Construct a timed book using the standard title, timeout method, owning user, initial page and lifespan (in seconds)
+		// This function accepts a vector of component vectors for contents - each component vector will be its own page
+		// This function accepts manually supplying interaction ID, owning cluster and token, as well as guild, channel and message IDs
 		timed_book(const std::string& title, const std::vector<std::vector<dpp::component>>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			dpp::snowflake interaction_id, dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message,
 			bool is_guild_interaction, uint32_t lifespan_seconds);
 
+		// Construct a timed book using the standard title, timeout method, owning user, initial page and lifespan (in seconds)
+		// This function accepts a vector of component vectors for contents - each component vector will be its own page
+		// This function accepts the owning cluster as well as interaction object
 		timed_book(const std::string& title, const std::vector<std::vector<dpp::component>>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			dpp::cluster* owner, const dpp::interaction& interaction, uint32_t lifespan_seconds)
 			: timed_book(title, contents, tm, user, initial_page, interaction.id, owner, interaction.token,
 				interaction.guild_id, interaction.channel_id, interaction.message_id, interaction.is_guild_interaction(), lifespan_seconds) {}
 
+		// Construct a timed book using the standard title, timeout method, owning user, initial page and lifespan (in seconds)
+		// This function accepts a vector of component vectors for contents - each component vector will be its own page
+		// This function accepts an interaction_create event
 		timed_book(const std::string& title, const std::vector<std::vector<dpp::component>>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			const dpp::interaction_create_t& interaction_create, uint32_t lifespan_seconds)
 			: timed_book(title, contents, tm, user, initial_page, interaction_create.owner, interaction_create.command, lifespan_seconds) {}
 
+		// Construct a timed book using the standard title, timeout method, owning user, initial page and lifespan (in seconds)
+		// This function accepts a vector of strings for contents - each string will be its own page
+		// This function accepts manually supplying interaction ID, owning cluster and token, as well as guild, channel and message IDs
 		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			dpp::snowflake interaction_id, dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message,
 			bool is_guild_interaction, uint32_t lifespan_seconds)
 			: timed_book(title, make_component_vectors_from_string_contents_vector(contents), tm, user, initial_page, interaction_id, owner, token,
 				guild, channel, message, is_guild_interaction, lifespan_seconds) {}
 
+		// Construct a timed book using the standard title, timeout method, owning user, initial page and lifespan (in seconds)
+		// This function accepts a vector of strings for contents - each string will be its own page
+		// This function accepts the owning cluster as well as interaction object
 		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			dpp::cluster* owner, const dpp::interaction& interaction, uint32_t lifespan_seconds)
 			: timed_book(title, contents, tm, user, initial_page, interaction.id, owner, interaction.token,
 				interaction.guild_id, interaction.channel_id, interaction.message_id, interaction.is_guild_interaction(), lifespan_seconds) {}
 
+		// Construct a timed book using the standard title, timeout method, owning user, initial page and lifespan (in seconds)
+		// This function accepts a vector of strings for contents - each string will be its own page
+		// This function accepts an interaction_create event
 		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
 			const dpp::interaction_create_t& interaction_create, uint32_t lifespan_seconds)
 			: timed_book(title, contents, tm, user, initial_page, interaction_create.owner, interaction_create.command, lifespan_seconds) {}
 
+		~timed_book();
+
+		// Returns the ID of this timed book. Useful for button IDs
+		inline auto id() { return id_; }
+
+		// Force this timed book to timeout, using the method specified on construction
 		inline auto force_timeout() { timed_interaction_.force_timeout(false); }
 
+		// Has this book timed out?
 		inline auto timed_out() const { return timed_interaction_.timed_out(); }
 
+		// Get the owning cluster of this timed book. Use this to register additional button events
 		inline auto owner() const { return timed_interaction_.owner(); }
 
+		// Get the lifespan of this timed book, in seconds
 		inline auto lifespan_seconds() const { return timed_interaction_.lifespan_seconds(); }
 
 		// Given a large string of "contents", this function splits the string into multiple smaller content strings - pages - and returns a vector of them

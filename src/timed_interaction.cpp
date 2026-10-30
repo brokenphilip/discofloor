@@ -423,36 +423,53 @@ namespace discofloor
 
 	void timed_book::button_click_event(const dpp::button_click_t& event)
 	{
-		if (timed_out())
+		// perform timeout and ownership checks to determine whether we should exit early
+		// if all checks are okay, we update the timed interaction and don't exit early
+		auto exit_early = [this, &event]()
 		{
-			event.reply(dpp::message(":x: **| This interaction has expired.**").set_flags(dpp::m_ephemeral));
-			return;
-		}
+			if (timed_out())
+			{
+				event.reply(dpp::message(":x: **| This interaction has expired.**").set_flags(dpp::m_ephemeral));
+				return true;
+			}
 
-		// if user is 0, anyone can use the menu, otherwise check for user id
-		// it will also fire for library-user-specified buttons, this is intentional
-		if (user_ && event.command.usr.id != user_)
-		{
-			event.reply(dpp::message(":no_entry: **| Only " + dpp::utility::user_mention(user_) + " can control this menu.**").set_flags(dpp::m_ephemeral));
-			return;
-		}
+			// if user is 0, anyone can use the menu, otherwise check for user id
+			// it will also fire for library-user-specified buttons, this is intentional
+			if (user_ && event.command.usr.id != user_)
+			{
+				event.reply(dpp::message(":no_entry: **| Only " + dpp::utility::user_mention(user_) + " can control this menu.**").set_flags(dpp::m_ephemeral));
+				return true;
+			}
+
+			update_timed_interaction(event);
+			return false;
+		};
 
 		// only handle this event if it's ours (ie. if it has our custom id)
 		if (event.custom_id == generate_first_page_custom_id())
 		{
-			update_timed_interaction(event);
+			if (exit_early())
+			{
+				return;
+			}
 			timed_interaction_.edit(get_page(active_page_index_ = 0));
 			event.reply(dpp::ir_deferred_update_message, "");
 		}
 		if (event.custom_id == generate_prev_page_custom_id())
 		{
-			update_timed_interaction(event);
+			if (exit_early())
+			{
+				return;
+			}
 			timed_interaction_.edit(get_page(active_page_index_ = active_page_index_ == 0 ? 0 : active_page_index_ - 1));
 			event.reply(dpp::ir_deferred_update_message, "");
 		}
 		else if (event.custom_id == generate_jump_page_custom_id())
 		{
-			update_timed_interaction(event);
+			if (exit_early())
+			{
+				return;
+			}
 			dpp::component select_page;
 			select_page.set_id("select_page");
 			select_page.set_type(dpp::cot_text);
@@ -463,13 +480,19 @@ namespace discofloor
 		}
 		else if (event.custom_id == generate_next_page_custom_id())
 		{
-			update_timed_interaction(event);
+			if (exit_early())
+			{
+				return;
+			}
 			timed_interaction_.edit(get_page(active_page_index_ = active_page_index_ == contents_.size() - 1 ? contents_.size() - 1 : active_page_index_ + 1));
 			event.reply(dpp::ir_deferred_update_message, "");
 		}
 		else if (event.custom_id == generate_last_page_custom_id())
 		{
-			update_timed_interaction(event);
+			if (exit_early())
+			{
+				return;
+			}
 			timed_interaction_.edit(get_page(active_page_index_ = contents_.size() - 1));
 			event.reply(dpp::ir_deferred_update_message, "");
 		}
@@ -477,14 +500,15 @@ namespace discofloor
 
 	void timed_book::form_submit_event(const dpp::form_submit_t& event)
 	{
-		if (timed_out())
-		{
-			return;
-		}
-
 		// only handle this event if it's ours (ie. if it has our id)
 		if (event.custom_id == generate_jump_page_custom_id())
 		{
+			if (timed_out())
+			{
+				event.reply(dpp::message(":x: **| This interaction has expired.**").set_flags(dpp::m_ephemeral));
+				return;
+			}
+
 			auto page_number_str = std::get<std::string>(event.components[0].value);
 			try
 			{
@@ -510,9 +534,6 @@ namespace discofloor
 
 	void timed_book::on_timeout()
 	{
-		timed_interaction_.owner()->on_form_submit.detach(form_submit_handle);
-		timed_interaction_.owner()->on_form_submit.detach(button_click_handle);
-
 		if (timeout_method_ == tm_disable_buttons)
 		{
 			timed_interaction_.edit(get_page(active_page_index_, false));
@@ -578,6 +599,14 @@ namespace discofloor
 		msg.guild_id = guild;
 		msg.channel_id = channel;
 		owner->interaction_response_create(interaction_id, token, dpp::interaction_response(dpp::ir_channel_message_with_source, msg));
+	}
+
+	timed_book::~timed_book()
+	{
+		// if we put these in on_timeout, lingering forms will not cleanly error (ie. handled by discord instead of us)
+		// the button_click event can, however, be in on_timeout, doesn't rlly matter, but we'll still place it here for parity
+		timed_interaction_.owner()->on_form_submit.detach(form_submit_handle);
+		timed_interaction_.owner()->on_button_click.detach(button_click_handle);
 	}
 
 	std::vector<std::string> timed_book::split_contents(const std::string& contents, const std::string& main_separator,
