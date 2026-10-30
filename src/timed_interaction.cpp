@@ -425,12 +425,15 @@ namespace discofloor
 	{
 		if (timed_out())
 		{
+			event.reply(dpp::message(":x: **| This interaction has expired.**").set_flags(dpp::m_ephemeral));
 			return;
 		}
 
 		// if user is 0, anyone can use the menu, otherwise check for user id
+		// it will also fire for library-user-specified buttons, this is intentional
 		if (user_ && event.command.usr.id != user_)
 		{
+			event.reply(dpp::message(":no_entry: **| Only " + dpp::utility::user_mention(user_) + " can control this menu.**").set_flags(dpp::m_ephemeral));
 			return;
 		}
 
@@ -491,9 +494,17 @@ namespace discofloor
 					timed_interaction_.edit(get_page(active_page_index_ = page_index));
 					event.reply(dpp::ir_deferred_update_message, "");
 				}
+				else
+				{
+					event.reply(dpp::message(std::format(":x: **| Page number \"{}\" out of bounds - must be between 1 and {}.**",
+						page_number_str, contents_.size())).set_flags(dpp::m_ephemeral));
+				}
 			}
-			catch (std::exception&) {}
-			// "silent" (discord-handled) fail if page index is invalid
+			catch (std::exception&)
+			{
+				event.reply(dpp::message(std::format(":x: **| Page \"{}\" is invalid - must be a number between 1 and {}.**",
+					dpp::utility::markdown_escape(page_number_str, true), contents_.size())).set_flags(dpp::m_ephemeral));
+			}
 		}
 	}
 
