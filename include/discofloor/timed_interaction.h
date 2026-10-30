@@ -209,6 +209,13 @@ namespace discofloor
 			// not a valid choice - only used to check input
 			tm_count,
 		};
+
+		// Callback function for modifying this timed book
+		// Use the std::string reference to modify the title
+		// Use the vector of component vectors to modify the contents
+		// Return the new page number - make sure it is valid
+		// If changing the active page is undesirable at this momennt, directly pass current_page() instead
+		using modify_fn = std::function<int(std::string&, std::vector<std::vector<dpp::component>>&)>;
 	private:
 		// next available timed book id
 		// cannot use 0 because the bot will start overwriting books upon restart
@@ -225,8 +232,6 @@ namespace discofloor
 
 		time_t last_update_ = std::time(nullptr);
 		timed_interaction timed_interaction_;
-
-		void update_timed_interaction(const dpp::interaction_create_t& event);
 
 		std::string generate_first_page_custom_id() { return "f_" + std::to_string(id_); }
 		std::string generate_prev_page_custom_id() { return "p_" + std::to_string(id_); }
@@ -245,8 +250,14 @@ namespace discofloor
 
 		void on_timeout();
 
-		std::vector<std::vector<dpp::component>> make_component_vectors_from_string_contents_vector(const std::vector<std::string> contents);
+		int modify_internal(modify_fn callback);
+
+		static void validate_contents(const std::vector<std::vector<dpp::component>>& contents);
+		static void validate_title(const std::string& title);
 	public:
+		// This function converts a vector of strings into a vector of component vectors - essentially, each string will be its own page
+		static std::vector<std::vector<dpp::component>> make_component_vectors_from_string_contents_vector(const std::vector<std::string> contents);
+
 		// Recommended main_separator for split_contents()
 		static inline const std::string unit_separator = "\x1F";
 
@@ -272,31 +283,46 @@ namespace discofloor
 			const dpp::interaction_create_t& interaction_create, uint32_t lifespan_seconds)
 			: timed_book(title, contents, tm, user, initial_page, interaction_create.owner, interaction_create.command, lifespan_seconds) {}
 
-		// Construct a timed book using the standard title, timeout method, owning user, initial page and lifespan (in seconds)
-		// This function accepts a vector of strings for contents - each string will be its own page
-		// This function accepts manually supplying interaction ID, owning cluster and token, as well as guild, channel and message IDs
-		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
-			dpp::snowflake interaction_id, dpp::cluster* owner, const std::string& token, dpp::snowflake guild, dpp::snowflake channel, dpp::snowflake message,
-			bool is_guild_interaction, uint32_t lifespan_seconds)
-			: timed_book(title, make_component_vectors_from_string_contents_vector(contents), tm, user, initial_page, interaction_id, owner, token,
-				guild, channel, message, is_guild_interaction, lifespan_seconds) {}
-
-		// Construct a timed book using the standard title, timeout method, owning user, initial page and lifespan (in seconds)
-		// This function accepts a vector of strings for contents - each string will be its own page
-		// This function accepts the owning cluster as well as interaction object
-		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
-			dpp::cluster* owner, const dpp::interaction& interaction, uint32_t lifespan_seconds)
-			: timed_book(title, contents, tm, user, initial_page, interaction.id, owner, interaction.token,
-				interaction.guild_id, interaction.channel_id, interaction.message_id, interaction.is_guild_interaction(), lifespan_seconds) {}
-
-		// Construct a timed book using the standard title, timeout method, owning user, initial page and lifespan (in seconds)
-		// This function accepts a vector of strings for contents - each string will be its own page
-		// This function accepts an interaction_create event
-		timed_book(const std::string& title, const std::vector<std::string>& contents, timeout_method tm, dpp::snowflake user, size_t initial_page,
-			const dpp::interaction_create_t& interaction_create, uint32_t lifespan_seconds)
-			: timed_book(title, contents, tm, user, initial_page, interaction_create.owner, interaction_create.command, lifespan_seconds) {}
-
 		~timed_book();
+
+		// Modify the title and contents of this timed book using the provided callback
+		// Will throw timed_out_error if the timed book has timed out
+		// Will throw invalid_argument errors for ANY incorrect input, and NO content will be updated even if correct
+		void modify(modify_fn callback);
+
+		// How many pages does this timed book have?
+		// This is also the last valid page
+		inline auto page_count() { return contents_.size(); }
+
+		// What page is this timed book currently on?
+		// Pass this value as "page_number" on any functions below to essentially refresh the book
+		// You can also use this value to do manual relative calculations based on the current page
+		inline auto current_page() { return active_page_index_ + 1; }
+
+		// Is the provided page number valid for this timed book?
+		inline auto valid_page_number(int page_number) { return page_number > 0 && page_number < page_count() + 1; }
+
+		// Set the active page of this timed book to the number passed in this function
+		// Will throw timed_out_error if the timed book has timed out
+		// Will throw invalid_argument if the page number is out of bounds
+		void set_page(int page_number);
+
+		// Update this book's timed interaction using a fresh interaction event, essentially reviving it if timed out
+		// Upon updating the underlying timed interaction, this function also sets the new active page
+		// If changing the active page is undesirable at this momennt, directly pass current_page() instead
+		// Will throw invalid_argument if the page number is out of bounds
+		void update_timed_interaction(const dpp::interaction_create_t& event, int page_number);
+
+		// Update this book's timed interaction using a fresh interaction event, essentially reviving it if timed out
+		// Upon updating the underlying timed interaction, this function also modifies the pages
+		// If changing the active page is undesirable at this momennt, directly pass current_page() instead
+		// Will throw invalid_argument if the page number is out of bounds
+		void update_timed_interaction(const dpp::interaction_create_t& event, modify_fn callback);
+
+		// Once you've confirmed that your button_click event belongs to this timed_book, you MUST call this function
+		// If it returns true, early return from your button_click event IMMEDIATELY
+		// This function handles checking for timed_menu ownership and timeout for you, replies included
+		bool should_early_return_from_button_click(const dpp::button_click_t& event);
 
 		// Returns the ID of this timed book. Useful for button IDs
 		inline auto id() { return id_; }

@@ -310,12 +310,6 @@ namespace discofloor
 		});
 	}
 
-	void timed_book::update_timed_interaction(const dpp::interaction_create_t& event)
-	{
-		timed_interaction_.update(event);
-		last_update_ = std::time(nullptr);
-	}
-
 	dpp::message timed_book::get_page(int index, bool buttons_enabled)
 	{
 		dpp::component container;
@@ -423,77 +417,58 @@ namespace discofloor
 
 	void timed_book::button_click_event(const dpp::button_click_t& event)
 	{
-		// perform timeout and ownership checks to determine whether we should exit early
-		// if all checks are okay, we update the timed interaction and don't exit early
-		auto exit_early = [this, &event]()
-		{
-			if (timed_out())
-			{
-				event.reply(dpp::message(":x: **| This interaction has expired.**").set_flags(dpp::m_ephemeral));
-				return true;
-			}
-
-			// if user is 0, anyone can use the menu, otherwise check for user id
-			// it will also fire for library-user-specified buttons, this is intentional
-			if (user_ && event.command.usr.id != user_)
-			{
-				event.reply(dpp::message(":no_entry: **| Only " + dpp::utility::user_mention(user_) + " can control this menu.**").set_flags(dpp::m_ephemeral));
-				return true;
-			}
-
-			update_timed_interaction(event);
-			return false;
-		};
-
 		// only handle this event if it's ours (ie. if it has our custom id)
 		if (event.custom_id == generate_first_page_custom_id())
 		{
-			if (exit_early())
+			if (should_early_return_from_button_click(event))
 			{
 				return;
 			}
-			timed_interaction_.edit(get_page(active_page_index_ = 0));
+			update_timed_interaction(event, 1);
 			event.reply(dpp::ir_deferred_update_message, "");
 		}
 		if (event.custom_id == generate_prev_page_custom_id())
 		{
-			if (exit_early())
+			if (should_early_return_from_button_click(event))
 			{
 				return;
 			}
-			timed_interaction_.edit(get_page(active_page_index_ = active_page_index_ == 0 ? 0 : active_page_index_ - 1));
+			update_timed_interaction(event, current_page() - 1);
 			event.reply(dpp::ir_deferred_update_message, "");
 		}
 		else if (event.custom_id == generate_jump_page_custom_id())
 		{
-			if (exit_early())
+			if (should_early_return_from_button_click(event))
 			{
 				return;
 			}
+			update_timed_interaction(event, current_page());
+
 			dpp::component select_page;
 			select_page.set_id("select_page");
 			select_page.set_type(dpp::cot_text);
 			select_page.set_label(std::format("Enter page number from 1 to {}", contents_.size()));
 			select_page.set_text_style(dpp::text_short);
 			select_page.set_required(true);
+			
 			event.dialog(dpp::interaction_modal_response(event.custom_id, "Jump to Page", { select_page }));
 		}
 		else if (event.custom_id == generate_next_page_custom_id())
 		{
-			if (exit_early())
+			if (should_early_return_from_button_click(event))
 			{
 				return;
 			}
-			timed_interaction_.edit(get_page(active_page_index_ = active_page_index_ == contents_.size() - 1 ? contents_.size() - 1 : active_page_index_ + 1));
+			update_timed_interaction(event, current_page() + 1);
 			event.reply(dpp::ir_deferred_update_message, "");
 		}
 		else if (event.custom_id == generate_last_page_custom_id())
 		{
-			if (exit_early())
+			if (should_early_return_from_button_click(event))
 			{
 				return;
 			}
-			timed_interaction_.edit(get_page(active_page_index_ = contents_.size() - 1));
+			update_timed_interaction(event, page_count());
 			event.reply(dpp::ir_deferred_update_message, "");
 		}
 	}
@@ -512,10 +487,10 @@ namespace discofloor
 			auto page_number_str = std::get<std::string>(event.components[0].value);
 			try
 			{
-				auto page_index = std::stoi(page_number_str) - 1;
-				if (page_index > -1 && page_index < contents_.size())
+				auto page_number = std::stoi(page_number_str);
+				if (valid_page_number(page_number))
 				{
-					timed_interaction_.edit(get_page(active_page_index_ = page_index));
+					set_page(page_number);
 					event.reply(dpp::ir_deferred_update_message, "");
 				}
 				else
@@ -534,6 +509,9 @@ namespace discofloor
 
 	void timed_book::on_timeout()
 	{
+		// NOTE: the form event gets detached on destruction instead
+		timed_interaction_.owner()->on_button_click.detach(button_click_handle);
+
 		if (timeout_method_ == tm_disable_buttons)
 		{
 			timed_interaction_.edit(get_page(active_page_index_, false));
@@ -541,6 +519,51 @@ namespace discofloor
 		else if (timeout_method_ == tm_delete_message)
 		{
 			timed_interaction_.remove();
+		}
+	}
+
+	int timed_book::modify_internal(modify_fn callback)
+	{
+		auto title_copy = title_;
+		auto contents_copy = contents_;
+		auto page_number = callback(title_copy, contents_copy);
+		if (page_number < 1 || page_number > contents_copy.size())
+		{
+			throw std::invalid_argument(std::format("Invalid page number {} - must be between 1 and {}", page_number, contents_copy.size()));
+		}
+		validate_title(title_copy);
+		validate_contents(contents_copy);
+
+		title_ = title_copy;
+		contents_ = contents_copy;
+		return page_number;
+	}
+
+	void timed_book::validate_contents(const std::vector<std::vector<dpp::component>>& contents)
+	{
+		if (contents.empty())
+		{
+			throw std::invalid_argument("Contents vector cannot be empty");
+		}
+		for (int i = 0; i < contents.size(); i++)
+		{
+			size_t size = 0;
+			for (auto& component : contents[i])
+			{
+				size += get_component_size(component);
+			}
+			if (size > 3'000)
+			{
+				throw std::invalid_argument(std::format("Per-page component vector content size cannot be longer than 3000 characters - got a length of {} at index {}", size, i));
+			}
+		}
+	}
+
+	void timed_book::validate_title(const std::string& title)
+	{
+		if (title.size() > 500)
+		{
+			throw std::invalid_argument(std::format("Title text cannot be longer than 500 characters - got a length of {}", title.size()));
 		}
 	}
 
@@ -563,39 +586,21 @@ namespace discofloor
 		: title_(title), contents_(contents), timeout_method_(tm), user_(user),
 		timed_interaction_(owner, token, guild, channel, message, is_guild_interaction, lifespan_seconds, [this](timed_interaction&) { on_timeout(); })
 	{
-		if (contents.empty())
-		{
-			throw std::invalid_argument("Contents vector cannot be empty");
-		}
 		if (tm >= tm_count)
 		{
 			throw std::invalid_argument("Not a valid timeout method");
 		}
-		if (initial_page < 0 || initial_page >= contents.size())
+		if (!valid_page_number(initial_page))
 		{
-			throw std::invalid_argument(std::format("Not a valid initial page index - expected a value between 0 and {} (inclusive), got {}", contents.size(), initial_page));
+			throw std::invalid_argument(std::format("Invalid page number {} - must be between 1 and {}", initial_page, page_count()));
 		}
-		if (title.size() > 500)
-		{
-			throw std::invalid_argument(std::format("Title text cannot be longer than 500 characters - got a length of {}", title.size()));
-		}
-		for (int i = 0; i < contents.size(); i++)
-		{
-			size_t size = 0;
-			for (auto& component : contents[i])
-			{
-				size += get_component_size(component);
-			}
-			if (size > 3'000)
-			{
-				throw std::invalid_argument(std::format("Per-page component vector content size cannot be longer than 3000 characters - got a length of {} at index {}", size, i));
-			}
-		}
+		validate_title(title);
+		validate_contents(contents);
 
 		button_click_handle = owner->on_button_click.attach([this](const dpp::button_click_t& event) { button_click_event(event); });
 		form_submit_handle = owner->on_form_submit.attach([this](const dpp::form_submit_t& event) { form_submit_event(event); });
 
-		auto msg = get_page(active_page_index_ = initial_page);
+		auto msg = get_page(active_page_index_ = initial_page - 1);
 		msg.guild_id = guild;
 		msg.channel_id = channel;
 		owner->interaction_response_create(interaction_id, token, dpp::interaction_response(dpp::ir_channel_message_with_source, msg));
@@ -603,10 +608,66 @@ namespace discofloor
 
 	timed_book::~timed_book()
 	{
-		// if we put these in on_timeout, lingering forms will not cleanly error (ie. handled by discord instead of us)
-		// the button_click event can, however, be in on_timeout, doesn't rlly matter, but we'll still place it here for parity
+		// if we put this in on_timeout, lingering modals will not cleanly error (ie. handled by discord instead of us)
+		// NOTE: the button event gets detached on timeout instead
 		timed_interaction_.owner()->on_form_submit.detach(form_submit_handle);
-		timed_interaction_.owner()->on_button_click.detach(button_click_handle);
+	}
+
+	void timed_book::modify(modify_fn callback)
+	{
+		if (timed_out())
+		{
+			throw timed_interaction::timed_out_error("Can't modify timed-out book");
+		}
+		set_page(modify_internal(callback));
+	}
+
+	void timed_book::set_page(int page_number)
+	{
+		if (!valid_page_number(page_number))
+		{
+			throw std::invalid_argument(std::format("Invalid page number {} - must be between 1 and {}", page_number, page_count()));
+		}
+		timed_interaction_.edit(get_page(active_page_index_ = page_number - 1));
+	}
+
+	void timed_book::update_timed_interaction(const dpp::interaction_create_t& event, int page_number)
+	{
+		if (!valid_page_number(page_number))
+		{
+			throw std::invalid_argument(std::format("Invalid page number {} - must be between 1 and {}", page_number, page_count()));
+		}
+		timed_interaction_.update(event);
+		last_update_ = std::time(nullptr);
+		set_page(page_number);
+	}
+
+	void timed_book::update_timed_interaction(const dpp::interaction_create_t& event, modify_fn callback)
+	{
+		int page_number = modify_internal(callback);
+		timed_interaction_.update(event);
+		last_update_ = std::time(nullptr);
+		set_page(page_number);
+	}
+
+	bool timed_book::should_early_return_from_button_click(const dpp::button_click_t& event)
+	{
+		// should be unreachable, but we're keeping it here for potential edge cases
+		if (timed_out())
+		{
+			event.reply(dpp::message(":x: **| This interaction has expired.**").set_flags(dpp::m_ephemeral));
+			return true;
+		}
+
+		// if user is 0, anyone can use the menu, otherwise check for user id
+		// it will also fire for library-user-specified buttons, this is intentional
+		if (user_ && event.command.usr.id != user_)
+		{
+			event.reply(dpp::message(":no_entry: **| Only " + dpp::utility::user_mention(user_) + " can control this menu.**").set_flags(dpp::m_ephemeral));
+			return true;
+		}
+
+		return false;
 	}
 
 	std::vector<std::string> timed_book::split_contents(const std::string& contents, const std::string& main_separator,
